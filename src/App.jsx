@@ -189,9 +189,26 @@ const allStreamsWeekly = (streams, wd, mi) => streams.reduce((a, s) => a + weekl
 const monthlyVal = (d, s, mi) => d?.[s]?.[mi] || 0;
 const allMonthly = (streams, d, mi) => streams.reduce((a, s) => a + monthlyVal(d, s, mi), 0);
 
-function ensureStreams(data, streams, type = "array") {
+// Apply a category-list change to a data object.
+// `origin` maps each current label to the label its data is stored under, so a
+// rename carries the history across instead of orphaning it. Data belonging to
+// removed categories is left in place — re-adding the same name brings it back.
+function applyStreams(data, streams, origin = {}, type = "array") {
   const u = { ...data };
-  streams.forEach(s => { if (!u[s]) u[s] = type === "array" ? Array(MAX_MONTHS).fill(0) : blankWeekly(); });
+  streams.forEach(s => {
+    const from = origin[s];
+    if (from && from !== s && from in u) { u[s] = u[from]; delete u[from]; }
+    if (u[s] === undefined) u[s] = type === "array" ? Array(MAX_MONTHS).fill(0) : blankWeekly();
+  });
+  return u;
+}
+// Same rename handling for the notes maps, which need no blank scaffolding.
+function applyNotes(notes, streams, origin = {}) {
+  const u = { ...notes };
+  streams.forEach(s => {
+    const from = origin[s];
+    if (from && from !== s && from in u) { u[s] = u[from]; delete u[from]; }
+  });
   return u;
 }
 
@@ -209,7 +226,11 @@ const T = {
   purple:"#a87fd4",
 };
 const CC = ["#d4a853","#7eb3f5","#52c47a","#f5a623","#a87fd4","#5cc8d4","#f06464","#f5c842","#8093f1","#e07070","#7ab87a","#f09d6a","#c4d4a0","#a0c4d4"];
-const fmt = v => typeof v==="number"&&!isNaN(v)?`${CURR.symbol}${Math.abs(v).toLocaleString(CURR.locale,{minimumFractionDigits:0,maximumFractionDigits:2})}`:"—";
+const fmt = v => {
+  if (typeof v !== "number" || isNaN(v)) return "—";
+  const n = `${CURR.symbol}${Math.abs(v).toLocaleString(CURR.locale,{minimumFractionDigits:0,maximumFractionDigits:2})}`;
+  return v < 0 ? `−${n}` : n;
+};
 const fmtS = v => { if(typeof v!=="number"||isNaN(v))return"—"; return(v>=0?"+":`−`)+`${CURR.symbol}${Math.abs(v).toLocaleString(CURR.locale,{minimumFractionDigits:0,maximumFractionDigits:2})}`; };
 
 const STYLES = `
@@ -403,15 +424,15 @@ function FormulaCell({ value, onCommit, placeholder, style }) {
   );
 }
 
-function StatCard({ icon, label, value, sub, delta, posGood = true }) {
+function StatCard({ icon, label, value, sub, delta, deltaLabel = "vs baseline", posGood = true, valueTone }) {
   const good = posGood ? T.success : T.danger, bad = posGood ? T.danger : T.success;
   return (
     <div className="stat-card">
       <div style={{ fontSize:20, marginBottom:5 }}>{icon}</div>
       <div className="sl" style={{ marginBottom:4 }}>{label}</div>
-      <div style={{ fontFamily:"'Playfair Display'", fontSize:22, fontWeight:600, color:T.accent }}>{value}</div>
+      <div style={{ fontFamily:"'Playfair Display'", fontSize:22, fontWeight:600, color:valueTone || T.accent }}>{value}</div>
       {sub && <div style={{ fontSize:12, color:T.sub, marginTop:3 }}>{sub}</div>}
-      {delta !== undefined && <div style={{ fontSize:12, color:delta >= 0 ? good : bad, marginTop:4 }}>{fmtS(delta)} vs baseline</div>}
+      {delta !== undefined && <div style={{ fontSize:12, color:delta >= 0 ? good : bad, marginTop:4 }}>{fmtS(delta)} {deltaLabel}</div>}
     </div>
   );
 }
@@ -593,13 +614,22 @@ function CurrencyModal({ current, onSave, onClose }) {
 }
 function CategoryModal({ title, streams, onSave, onClose }) {
   const [list, setList] = useState([...streams]);
+  // Tracks each current label back to the name its data is stored under, so the
+  // save handler can move history across a rename.
+  const [origin, setOrigin] = useState(() => Object.fromEntries(streams.map(s => [s, s])));
   const [newName, setNewName] = useState("");
   const [editing, setEditing] = useState({});
+  const removed = streams.filter(s => !Object.values(origin).includes(s));
   const add = () => { const n = newName.trim(); if (!n || list.includes(n)) return; setList([...list, n]); setNewName(""); };
-  const remove = s => setList(list.filter(x => x !== s));
+  const remove = s => {
+    setList(list.filter(x => x !== s));
+    setOrigin(o => { const c = {...o}; delete c[s]; return c; });
+  };
   const rename = (old, nv) => {
-    if (!nv.trim() || (list.includes(nv.trim()) && nv.trim() !== old)) return;
-    setList(list.map(x => x === old ? nv.trim() : x));
+    const n = nv.trim();
+    if (!n || (list.includes(n) && n !== old)) return;
+    setList(list.map(x => x === old ? n : x));
+    setOrigin(o => { const c = {...o}; if (old in c) { c[n] = c[old]; delete c[old]; } return c; });
     setEditing(e => { const c={...e}; delete c[old]; return c; });
   };
   return (
@@ -628,9 +658,16 @@ function CategoryModal({ title, streams, onSave, onClose }) {
             onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key==="Enter"&&add()} />
           <button className="btn btn-primary btn-sm" onClick={add}>Add</button>
         </div>
+        {removed.length > 0 && (
+          <div style={{ padding:"10px 14px", background:"rgba(245,166,35,.08)", border:`1px solid rgba(245,166,35,.3)`,
+            borderRadius:8, fontSize:12, color:T.sub, marginBottom:16 }}>
+            <strong style={{ color:T.warning }}>Removing {removed.join(", ")}.</strong>{" "}
+            Their entries stay hidden from every view and total. Add the same name back to restore them.
+          </div>
+        )}
         <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
           <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary" onClick={() => onSave(list)}>Apply</button>
+          <button className="btn btn-primary" onClick={() => onSave(list, origin)}>Apply</button>
         </div>
       </div>
     </div>
@@ -1299,6 +1336,7 @@ function Dashboard({ monthIdx, fyStart, totalMonths, incomeStreams, savingsStrea
   const savTgt  = fyMonths.reduce((a,mi)=>a+allMonthly(pureStreams,baselineSavings,mi),0);
   const invTgt  = fyMonths.reduce((a,mi)=>a+allMonthly(investStreams,baselineSavings,mi),0);
   const frac    = fyMonths.length > 0 ? ytd.length / fyMonths.length : 0;
+  const netRemaining = actInc - actSav - actExp;
 
   return (
     <div className="fade">
@@ -1315,12 +1353,13 @@ function Dashboard({ monthIdx, fyStart, totalMonths, incomeStreams, savingsStrea
         <StatCard icon="🏦" label={viewMode==="fy"?"FY Saved":"Total Saved"}
           value={fmt(viewMode==="fy"?fyActSav:actSav)}
           sub={`Baseline: ${fmt(viewMode==="fy"?fyBasSav:basSav)} · Forecast: ${fmt(viewMode==="fy"?fyFcSav:fcSav)}`}
-          delta={viewMode==="fy"?undefined:actSav-fcSav}/>
+          delta={viewMode==="fy"?undefined:actSav-fcSav} deltaLabel="vs forecast"/>
         <StatCard icon="🧾" label={viewMode==="fy"?"FY Spent":"Total Spent"}
           value={fmt(viewMode==="fy"?fyActExp:actExp)}
           sub={`Baseline: ${fmt(viewMode==="fy"?fyBasExp:basExp)} · Forecast: ${fmt(viewMode==="fy"?fyFcExp:fcExp)}`}
-          delta={viewMode==="fy"?undefined:actExp-fcExp} posGood={false}/>
-        <StatCard icon="✅" label="Net Remaining" value={fmt(actInc-actSav-actExp)} sub="After savings & spend"/>
+          delta={viewMode==="fy"?undefined:actExp-fcExp} deltaLabel="vs forecast" posGood={false}/>
+        <StatCard icon="✅" label="Net Remaining" value={fmt(netRemaining)} sub="After savings & spend"
+          valueTone={netRemaining < 0 ? T.danger : undefined}/>
       </div>
 
       {/* Gauge Dials */}
@@ -1391,7 +1430,7 @@ function IncomePage({ monthIdx, fyStart, totalMonths, streams, setStreams, basel
           <button className="btn btn-ghost btn-sm" onClick={()=>setCatModal(true)}>⊞ Categories</button>
         </div>
       </div>
-      {catModal && <CategoryModal title="Income" streams={streams} onSave={s=>{setStreams(s);setCatModal(false);}} onClose={()=>setCatModal(false)}/>}
+      {catModal && <CategoryModal title="Income" streams={streams} onSave={(s,o)=>{setStreams(s,o);setCatModal(false);}} onClose={()=>setCatModal(false)}/>}
 
       <FYToolbar fyStart={fyStart} monthIdx={monthIdx} totalMonths={totalMonths} selectedFY={selFY} onSelectFY={setSelFY}
         viewMode={viewMode} onViewMode={setViewMode} onSettings={()=>setFYSettingsOpen(true)}/>
@@ -1527,7 +1566,7 @@ function SavingsPage({ monthIdx, fyStart, totalMonths, streams, setStreams, base
           <button className="btn btn-ghost btn-sm" onClick={()=>setCatModal(true)}>⊞ Categories</button>
         </div>
       </div>
-      {catModal && <CategoryModal title="Savings" streams={streams} onSave={s=>{setStreams(s);setCatModal(false);}} onClose={()=>setCatModal(false)}/>}
+      {catModal && <CategoryModal title="Savings" streams={streams} onSave={(s,o)=>{setStreams(s,o);setCatModal(false);}} onClose={()=>setCatModal(false)}/>}
       <FYToolbar fyStart={fyStart} monthIdx={monthIdx} totalMonths={totalMonths} selectedFY={selFY} onSelectFY={setSelFY}
         viewMode={viewMode} onViewMode={setViewMode} onSettings={()=>{}}/>
 
@@ -1583,7 +1622,7 @@ function ExpenditurePage({ monthIdx, fyStart, totalMonths, streams, setStreams, 
           <button className="btn btn-ghost btn-sm" onClick={()=>setCatModal(true)}>⊞ Categories</button>
         </div>
       </div>
-      {catModal && <CategoryModal title="Expenditure" streams={streams} onSave={s=>{setStreams(s);setCatModal(false);}} onClose={()=>setCatModal(false)}/>}
+      {catModal && <CategoryModal title="Expenditure" streams={streams} onSave={(s,o)=>{setStreams(s,o);setCatModal(false);}} onClose={()=>setCatModal(false)}/>}
       <FYToolbar fyStart={fyStart} monthIdx={monthIdx} totalMonths={totalMonths} selectedFY={selFY} onSelectFY={setSelFY}
         viewMode={viewMode} onViewMode={setViewMode} onSettings={()=>{}}/>
 
@@ -2214,20 +2253,27 @@ export default function App() {
     setSavingsStreams(savingsCats);
     setExpStreams(expCats);
 
-    // Seed income baseline + actuals from the monthly income figure
+    // Seed the income baseline from the stated monthly figure. Actuals stay
+    // empty — nothing has been received yet, least of all in future months.
     const incStreams = ["Pay check", "Extra Income"];
-    const payArr = Array(MAX_MONTHS).fill(mInc || 0);
-    const zeroArr = Array(MAX_MONTHS).fill(0);
-    const newBaselineIncome = { "Pay check": [...payArr], "Extra Income": [...zeroArr] };
-    const newIncomeActual   = { "Pay check": [...payArr], "Extra Income": [...zeroArr] };
+    const blankArr = () => Array(MAX_MONTHS).fill(0);
+    const newBaselineIncome = { "Pay check": Array(MAX_MONTHS).fill(mInc || 0), "Extra Income": blankArr() };
+    const newIncomeActual   = { "Pay check": blankArr(), "Extra Income": blankArr() };
     setIncomeStreams(incStreams);
     setBaselineIncome(newBaselineIncome);
     setIncomeActual(newIncomeActual);
 
-    // Build blank baseline/forecast/weekly structures for chosen categories
-    const blankArr = () => Array(MAX_MONTHS).fill(0);
-    const newBaselineSavings = Object.fromEntries(savingsCats.map(s => [s, blankArr()]));
-    const newForecastSavings = Object.fromEntries(savingsCats.map(s => [s, blankArr()]));
+    // Spread the annual savings goal evenly across the chosen categories, so the
+    // dashboard gauges have a real target to measure against from the first visit.
+    // Any rounding remainder goes to the first category, so the monthly targets
+    // still add up to exactly a twelfth of the stated goal.
+    const monthlyGoal = Math.round(((goal || 0) / 12) * 100) / 100;
+    const nCats = savingsCats.length;
+    const perCat = nCats ? Math.floor((monthlyGoal / nCats) * 100) / 100 : 0;
+    const firstCat = nCats ? Math.round((monthlyGoal - perCat * (nCats - 1)) * 100) / 100 : 0;
+    const goalArrFor = i => Array(MAX_MONTHS).fill(i === 0 ? firstCat : perCat);
+    const newBaselineSavings = Object.fromEntries(savingsCats.map((s, i) => [s, goalArrFor(i)]));
+    const newForecastSavings = Object.fromEntries(savingsCats.map((s, i) => [s, goalArrFor(i)]));
     const newSavingsWeekly   = Object.fromEntries(savingsCats.map(s => [s, blankWeekly()]));
     const newBaselineExp     = Object.fromEntries(expCats.map(s => [s, blankArr()]));
     const newForecastExp     = Object.fromEntries(expCats.map(s => [s, blankArr()]));
@@ -2278,22 +2324,24 @@ export default function App() {
       incomeActual,savingsForecast,savingsWeekly,expForecast,expWeekly,netWorth,moneyOwed,expNotes,incomeNotes]);
 
   // Category handlers — ensure data structures when streams change
-  const handleSetInc = useCallback(ns => {
+  const handleSetInc = useCallback((ns, origin) => {
     setIncomeStreams(ns);
-    setIncomeActual(p => ensureStreams(p, ns, "array"));
-    setBaselineIncome(p => ensureStreams(p, ns, "array"));
+    setIncomeActual(p => applyStreams(p, ns, origin, "array"));
+    setBaselineIncome(p => applyStreams(p, ns, origin, "array"));
+    setIncomeNotes(p => applyNotes(p, ns, origin));
   }, []);
-  const handleSetSav = useCallback(ns => {
+  const handleSetSav = useCallback((ns, origin) => {
     setSavingsStreams(ns);
-    setSavingsForecast(p => ensureStreams(p, ns, "array"));
-    setSavingsWeekly(p => ensureStreams(p, ns, "weekly"));
-    setBaselineSavings(p => ensureStreams(p, ns, "array"));
+    setSavingsForecast(p => applyStreams(p, ns, origin, "array"));
+    setSavingsWeekly(p => applyStreams(p, ns, origin, "weekly"));
+    setBaselineSavings(p => applyStreams(p, ns, origin, "array"));
   }, []);
-  const handleSetExp = useCallback(ns => {
+  const handleSetExp = useCallback((ns, origin) => {
     setExpStreams(ns);
-    setExpForecast(p => ensureStreams(p, ns, "array"));
-    setExpWeekly(p => ensureStreams(p, ns, "weekly"));
-    setBaselineExp(p => ensureStreams(p, ns, "array"));
+    setExpForecast(p => applyStreams(p, ns, origin, "array"));
+    setExpWeekly(p => applyStreams(p, ns, origin, "weekly"));
+    setBaselineExp(p => applyStreams(p, ns, origin, "array"));
+    setExpNotes(p => applyNotes(p, ns, origin));
   }, []);
 
   // Baseline edit handler — opens the modal for the right section
