@@ -5,7 +5,7 @@ import { MAX_MONTHS, MONTH_NAMES, WEEKS, LEGACY_EPOCH, makeCalendar, fyLabel,
   epochForNewProfile, monthIndexOf, shiftEpoch } from "./lib/calendar.js";
 import { CURRENCIES, flagEmoji } from "./lib/currencies.js";
 import { makeFormatters } from "./lib/money.js";
-import { isInvestment, inferSavingsKind, withSavingsKinds, shiftAllArrays, shiftAllWeekly, shiftNotes, wouldLoseData, DEFAULT_INCOME_STREAMS, DEFAULT_SAVINGS_STREAMS, DEFAULT_EXP_STREAMS, makeBaselineIncome, makeBaselineSavings, makeBaselineExp, NET_WORTH_ASSETS, DEFAULT_NET_WORTH, blankWeekly, weeklyTotal, allStreamsWeekly, monthlyVal, allMonthly, applyStreams, applyNotes } from "./lib/data.js";
+import { isInvestment, inferSavingsKind, withSavingsKinds, netWorthAt, netWorthTotalAt, migrateNetWorth, shiftAllArrays, shiftAllWeekly, shiftNotes, wouldLoseData, DEFAULT_INCOME_STREAMS, DEFAULT_SAVINGS_STREAMS, DEFAULT_EXP_STREAMS, makeBaselineIncome, makeBaselineSavings, makeBaselineExp, NET_WORTH_ASSETS, blankWeekly, weeklyTotal, allStreamsWeekly, monthlyVal, allMonthly, applyStreams, applyNotes } from "./lib/data.js";
 import { load, save } from "./lib/storage.js";
 import { isFormula, parseEntry } from "./lib/expr.js";
 import { T, CC, STYLES } from "./theme.js";
@@ -328,6 +328,8 @@ function CurrencyModal({ current, onSave, onClose }) {
     </div>
   );
 }
+// `kinds` is passed for savings only: each category is a pot or an investment,
+// and the dashboard's two gauges split on that rather than on the name.
 function CategoryModal({ title, streams, kinds, onSave, onClose }) {
   const [list, setList] = useState([...streams]);
   // Tracks each current label back to the name its data is stored under, so the
@@ -513,6 +515,9 @@ function BaselineEditorModal({ section, streams, data, fyStart, totalMonths, onS
 }
 
 // ─── GAUGE DIAL ───────────────────────────────────────────────────────────────
+// `target` is what should have been put aside by now; `annual` is the whole
+// year. The ring measures pace against the former — measuring against the full
+// year meant someone exactly on plan still read as behind for eleven months.
 function GaugeDial({ label, actual, target, annual, color, sub, icon }) {
   const { fmt } = useMoney();
   const raw = target > 0 ? actual/target : 0;
@@ -1464,23 +1469,55 @@ function ExpenditurePage({ monthIdx, fyStart, totalMonths, streams, setStreams, 
   );
 }
 
-function NetWorthPage({ netWorth, onUpdate }) {
-  const { fmt, curr } = useMoney();
-  const total = NET_WORTH_ASSETS.reduce((a,k)=>a+(netWorth[k]||0),0);
-  const pie = NET_WORTH_ASSETS.map((k,i)=>({name:k,value:netWorth[k]||0,color:CC[i]})).filter(d=>d.value>0);
+function NetWorthPage({ netWorth, assets, setAssets, monthIdx, fyStart, totalMonths, onUpdate }) {
+  const { fmt, fmtS, fmtAxis, curr } = useMoney();
+  const { MONTHS, getFYYear, getFYMonths } = useCalendar();
+  const [catModal, setCatModal] = useState(false);
+  const fyMonths = getFYMonths(getFYYear(monthIdx, fyStart), fyStart, totalMonths);
+
+  // Figures carry forward from the last month they were recorded, so a month
+  // you did not check your balances in shows the position, not a hole.
+  const valueAt = (k, mi) => netWorthAt(netWorth, k, mi);
+  const total = netWorthTotalAt(netWorth, assets, monthIdx);
+  const prevTotal = monthIdx > 0 ? netWorthTotalAt(netWorth, assets, monthIdx - 1) : 0;
+  const change = total - prevTotal;
+  const pie = assets.map((k,i)=>({name:k,value:valueAt(k,monthIdx),color:CC[i%CC.length]})).filter(d=>d.value>0);
+  const trend = fyMonths.map(mi => ({ name: MONTHS[mi]?.short, Total: netWorthTotalAt(netWorth, assets, mi) }));
+  const everRecorded = assets.some(k => (netWorth[k] || []).some(v => v));
+
   return (
     <div className="fade">
-      <div style={{ fontFamily:"'Playfair Display'", fontSize:20, fontWeight:600, marginBottom:20 }}>Net Worth</div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+        <div style={{ fontFamily:"'Playfair Display'", fontSize:20, fontWeight:600 }}>Net Worth</div>
+        <button className="btn btn-ghost btn-sm" onClick={()=>setCatModal(true)}>⊞ Asset Classes</button>
+      </div>
+      {catModal && <CategoryModal title="Asset Class" streams={assets}
+        onSave={(a,o)=>{setAssets(a,o);setCatModal(false);}} onClose={()=>setCatModal(false)}/>}
+      <div style={{ fontSize:12, color:T.sub, marginBottom:16 }}>
+        Showing <strong style={{ color:T.accent }}>{MONTHS[monthIdx]?.label}</strong>. Enter a figure whenever you
+        check a balance — months in between carry the last one forward.
+      </div>
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
         <div className="card" style={{ padding:20 }}>
-          <div className="sl" style={{ marginBottom:14 }}>Asset Classes</div>
+          <div className="sl" style={{ marginBottom:14 }}>{MONTHS[monthIdx]?.label}</div>
           <table>
             <thead><tr><th>Class</th><th style={{ color:T.accent }}>Value ({curr.symbol})</th></tr></thead>
             <tbody>
-              {NET_WORTH_ASSETS.map(k=><tr key={k}><td>{k}</td><td><NumInput value={netWorth[k]||0} onChange={v=>onUpdate(k,v)}/></td></tr>)}
+              {assets.map(k=>(
+                <tr key={k}>
+                  <td>{k}</td>
+                  <td><NumInput value={netWorth[k]?.[monthIdx] || 0} onChange={v=>onUpdate(k,monthIdx,v)}/></td>
+                </tr>
+              ))}
               <tr className="total-row"><td>Total Net Worth</td><td>{fmt(total)}</td></tr>
             </tbody>
           </table>
+          {monthIdx > 0 && prevTotal > 0 && (
+            <div style={{ marginTop:12, fontSize:12, color:T.sub }}>
+              Change on {MONTHS[monthIdx-1]?.label}:{" "}
+              <strong style={{ color: change >= 0 ? T.success : T.danger }}>{fmtS(change)}</strong>
+            </div>
+          )}
         </div>
         <div className="card" style={{ padding:20 }}>
           <div style={{ textAlign:"center", margin:"18px 0 8px" }}>
@@ -1503,6 +1540,31 @@ function NetWorthPage({ netWorth, onUpdate }) {
             ))}
           </div>
         </div>
+      </div>
+
+      {/* Trend — the point of keeping a history rather than one snapshot */}
+      <div className="card" style={{ padding:20, marginTop:16 }}>
+        <div style={{ fontFamily:"'Playfair Display'", fontSize:14, fontWeight:600, marginBottom:4 }}>
+          Net Worth Over {fyLabel(getFYYear(monthIdx, fyStart), fyStart)}
+        </div>
+        <div style={{ fontSize:11, color:T.sub, marginBottom:14 }}>
+          Each month shows the most recent figure recorded on or before it.
+        </div>
+        {everRecorded ? (
+          <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={trend}>
+              <CartesianGrid strokeDasharray="3 3" stroke={T.border}/>
+              <XAxis dataKey="name" tick={{fill:T.sub,fontSize:11}} axisLine={false} tickLine={false}/>
+              <YAxis tick={{fill:T.sub,fontSize:10}} axisLine={false} tickLine={false} tickFormatter={fmtAxis} width={54}/>
+              <Tooltip contentStyle={{background:T.card,border:`1px solid ${T.border}`,borderRadius:8,fontSize:12}} formatter={v=>fmt(v)}/>
+              <Line type="monotone" dataKey="Total" stroke={T.accent} strokeWidth={2.5} dot={{r:3,fill:T.accent}}/>
+            </LineChart>
+          </ResponsiveContainer>
+        ) : (
+          <div style={{ textAlign:"center", padding:"34px 0", color:T.sub, fontSize:13 }}>
+            No figures recorded yet. Enter what each asset class is worth above and the trend builds from there.
+          </div>
+        )}
       </div>
     </div>
   );
@@ -2034,7 +2096,8 @@ export default function App() {
   const [expNotes, setExpNotes] = useState({});
   const [incomeNotes, setIncomeNotes] = useState({});
 
-  const [netWorth, setNetWorth] = useState(DEFAULT_NET_WORTH);
+  const [netWorthAssets, setNetWorthAssets] = useState(NET_WORTH_ASSETS);
+  const [netWorth, setNetWorth] = useState(() => migrateNetWorth({}, NET_WORTH_ASSETS));
   const [moneyOwed, setMoneyOwed] = useState([]);
   const [savingsGoal, setSavingsGoal] = useState(0);
 
@@ -2044,9 +2107,9 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      const keys = ["fy","tm","curr","cats","bInc","bSav","bExp","incAct","savFc","savWk","expFc","expWk","nw","mo","expN","incN","dver","name","goal","done","savTypes","epoch"];
+      const keys = ["fy","tm","curr","cats","bInc","bSav","bExp","incAct","savFc","savWk","expFc","expWk","nw","mo","expN","incN","dver","name","goal","done","savTypes","epoch","nwCats"];
       const res = await Promise.all(keys.map(k => load(`bt3-${k}`, null)));
-      const [fy,tm,curr,cats,bInc,bSav,bExp,incAct,savFc,savWk,expFc,expWk,nw,mo,expN,incN,dver,uname,goal,done,savTypes,storedEpoch] = res;
+      const [fy,tm,curr,cats,bInc,bSav,bExp,incAct,savFc,savWk,expFc,expWk,nw,mo,expN,incN,dver,uname,goal,done,savTypes,storedEpoch,nwCats] = res;
 
       // Onboarding flag
       if (done) { setOnboarded(true); }
@@ -2075,7 +2138,10 @@ export default function App() {
       if (!freshSeed && savWk)  setSavingsWeekly(savWk);
       if (!freshSeed && expFc)  setExpForecast(expFc);
       if (!freshSeed && expWk)  setExpWeekly(expWk);
-      if (nw)     setNetWorth(nw);
+      // Older profiles hold one figure per asset; convert to a per-month series.
+      const nwAssets = Array.isArray(nwCats) && nwCats.length ? nwCats : NET_WORTH_ASSETS;
+      setNetWorthAssets(nwAssets);
+      setNetWorth(migrateNetWorth(nw || {}, nwAssets, Math.max(0, Math.min(monthIndexOf(ep), MAX_MONTHS - 1))));
       if (mo)     setMoneyOwed(mo);
       if (!freshSeed && expN)   setExpNotes(expN);
       if (!freshSeed && incN)   setIncomeNotes(incN);
@@ -2192,11 +2258,11 @@ export default function App() {
       save("bt3-bInc", baselineIncome), save("bt3-bSav", baselineSavings), save("bt3-bExp", baselineExp),
       save("bt3-incAct", incomeActual), save("bt3-savFc", savingsForecast), save("bt3-savWk", savingsWeekly),
       save("bt3-expFc", expForecast), save("bt3-expWk", expWeekly),
-      save("bt3-nw", netWorth), save("bt3-mo", moneyOwed),
+      save("bt3-nw", netWorth), save("bt3-nwCats", netWorthAssets), save("bt3-mo", moneyOwed),
       save("bt3-expN", expNotes), save("bt3-incN", incomeNotes),
     ]);
     setSaved(true); setTimeout(()=>setSaved(false), 2000);
-  }, [fyStart,totalMonths,currency,userName,savingsGoal,savingsTypes,epoch,incomeStreams,savingsStreams,expStreams,baselineIncome,baselineSavings,baselineExp,
+  }, [fyStart,totalMonths,currency,userName,savingsGoal,savingsTypes,epoch,netWorthAssets,incomeStreams,savingsStreams,expStreams,baselineIncome,baselineSavings,baselineExp,
       incomeActual,savingsForecast,savingsWeekly,expForecast,expWeekly,netWorth,moneyOwed,expNotes,incomeNotes]);
 
   // Category handlers — ensure data structures when streams change
@@ -2383,7 +2449,10 @@ export default function App() {
             expNotes={expNotes} onUpdateExpNote={updExpNote}
             onFYSettings={()=>setFYSettingsOpen(true)}/>}
 
-          {page==="networth"&&<NetWorthPage netWorth={netWorth} onUpdate={(k,v)=>setNetWorth(p=>({...p,[k]:v}))}/>}
+          {page==="networth"&&<NetWorthPage netWorth={netWorth} assets={netWorthAssets} monthIdx={monthIdx}
+            fyStart={fyStart} totalMonths={totalMonths}
+            setAssets={(a,o)=>{setNetWorthAssets(a);setNetWorth(p=>applyStreams(p,a,o,"array"));}}
+            onUpdate={(k,mi,v)=>setNetWorth(p=>{const arr=[...(p[k]||Array(MAX_MONTHS).fill(0))];arr[mi]=v;return{...p,[k]:arr};})}/>}
           {page==="moneyowed"&&<MoneyOwedPage rows={moneyOwed} onUpdate={setMoneyOwed}/>}
           {page==="baseline"&&<BaselinePage monthIdx={monthIdx} fyStart={fyStart} totalMonths={totalMonths}
             incomeStreams={incomeStreams} savingsStreams={savingsStreams} expStreams={expStreams}

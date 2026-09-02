@@ -25,7 +25,6 @@ const makeBaselineExp = () => ({
 })
 
 const NET_WORTH_ASSETS = ["Property","Equities","Bonds","Commodities","Cash (Savings)","Cash (Emergency Fund)","Cash (Pension)"];
-const DEFAULT_NET_WORTH = { Property:0,Equities:0,Bonds:0,Commodities:0,"Cash (Savings)":0,"Cash (Emergency Fund)":0,"Cash (Pension)":0 };
 
 // ─── SAVINGS CATEGORY KINDS ───────────────────────────────────────────────────
 // A savings category is either a pot (cash set aside) or an investment. This
@@ -86,6 +85,42 @@ function applyNotes(notes, streams, origin = {}) {
   return u;
 }
 
+// ─── NET WORTH ────────────────────────────────────────────────────────────────
+// Net worth used to be a single object that every edit overwrote, so the most
+// interesting thing about it — whether it is going up — could not be shown. It
+// is now a series per asset, like everything else.
+//
+// It is also a stock rather than a flow: you check your balances occasionally,
+// not every month. A month with no entry therefore inherits the last figure
+// recorded before it, instead of the trend line dropping to zero in between.
+function netWorthAt(series, asset, mi) {
+  const arr = series?.[asset];
+  if (!Array.isArray(arr)) return 0;
+  for (let i = Math.min(mi, arr.length - 1); i >= 0; i--) if (arr[i]) return arr[i];
+  return 0;
+}
+const netWorthTotalAt = (series, assets, mi) =>
+  assets.reduce((a, k) => a + netWorthAt(series, k, mi), 0);
+
+// Convert a stored net worth into the series form. An older profile holds one
+// number per asset; that figure is placed on the month it is read, so it shows
+// as today's position rather than being lost.
+function migrateNetWorth(stored, assets, atMonth = 0) {
+  const out = {};
+  const keys = new Set([...(assets || []), ...Object.keys(stored || {})]);
+  keys.forEach(a => {
+    const v = stored?.[a];
+    if (Array.isArray(v)) {
+      out[a] = [...v, ...Array(MAX_MONTHS).fill(0)].slice(0, MAX_MONTHS);
+    } else {
+      const arr = Array(MAX_MONTHS).fill(0);
+      if (typeof v === "number" && v) arr[Math.max(0, Math.min(atMonth, MAX_MONTHS - 1))] = v;
+      out[a] = arr;
+    }
+  });
+  return out;
+}
+
 // ─── EXTENDING THE TIMELINE BACKWARDS ─────────────────────────────────────────
 // Every series is indexed by months since the epoch, so moving the epoch back
 // means sliding all of the stored data forward by the same number of months.
@@ -134,5 +169,5 @@ function wouldLoseData(series, n) {
   });
 }
 
-export { shiftArray, shiftWeekly, shiftNotes, shiftAllArrays, shiftAllWeekly, wouldLoseData,
-  inferSavingsKind, savingsKind, isInvestment, withSavingsKinds, DEFAULT_INCOME_STREAMS, DEFAULT_SAVINGS_STREAMS, DEFAULT_EXP_STREAMS, makeBaselineIncome, makeBaselineSavings, makeBaselineExp, NET_WORTH_ASSETS, DEFAULT_NET_WORTH, blankWeekly, weeklyTotal, allStreamsWeekly, monthlyVal, allMonthly, applyStreams, applyNotes };
+export { netWorthAt, netWorthTotalAt, migrateNetWorth, shiftArray, shiftWeekly, shiftNotes, shiftAllArrays, shiftAllWeekly, wouldLoseData,
+  inferSavingsKind, savingsKind, isInvestment, withSavingsKinds, DEFAULT_INCOME_STREAMS, DEFAULT_SAVINGS_STREAMS, DEFAULT_EXP_STREAMS, makeBaselineIncome, makeBaselineSavings, makeBaselineExp, NET_WORTH_ASSETS, blankWeekly, weeklyTotal, allStreamsWeekly, monthlyVal, allMonthly, applyStreams, applyNotes };

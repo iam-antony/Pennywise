@@ -6,6 +6,7 @@ import {
 import {
   shiftArray, shiftWeekly, shiftNotes, shiftAllArrays, wouldLoseData,
   blankWeekly, weeklyTotal, inferSavingsKind, isInvestment, withSavingsKinds,
+  netWorthAt, netWorthTotalAt, migrateNetWorth,
 } from "./data.js";
 
 // ─── P3-02: the timeline is no longer pinned to January 2026 ─────────────────
@@ -154,5 +155,50 @@ describe("savings kinds", () => {
   it("fills gaps without overwriting existing choices", () => {
     const out = withSavingsKinds(["Emergency Fund", "ISA"], { "ISA": "investment" });
     expect(out).toEqual({ "Emergency Fund": "pot", "ISA": "investment" });
+  });
+});
+
+// ─── P3-06: net worth keeps a history instead of one overwritten snapshot ───
+describe("net worth", () => {
+  it("migrates an old single-figure profile onto the month it is read", () => {
+    const out = migrateNetWorth({ Property: 320000, Equities: 48000 }, ["Property", "Equities"], 8);
+    expect(out.Property[8]).toBe(320000);
+    expect(out.Property[7]).toBe(0);
+    expect(out.Property).toHaveLength(MAX_MONTHS);
+  });
+
+  it("leaves an already-migrated profile alone", () => {
+    const arr = Array(MAX_MONTHS).fill(0); arr[3] = 1000;
+    const out = migrateNetWorth({ Cash: arr }, ["Cash"], 8);
+    expect(out.Cash[3]).toBe(1000);
+    expect(out.Cash[8]).toBe(0);
+  });
+
+  it("keeps assets that are in storage but not in the current list", () => {
+    const out = migrateNetWorth({ Gold: 500 }, ["Property"], 0);
+    expect(out.Gold).toBeDefined();
+    expect(out.Property).toBeDefined();
+  });
+
+  it("carries the last recorded figure forward between checks", () => {
+    const arr = Array(MAX_MONTHS).fill(0);
+    arr[2] = 1000; arr[6] = 1200;
+    const series = { Cash: arr };
+    expect(netWorthAt(series, "Cash", 1)).toBe(0);
+    expect(netWorthAt(series, "Cash", 2)).toBe(1000);
+    expect(netWorthAt(series, "Cash", 5)).toBe(1000);  // no entry, inherits
+    expect(netWorthAt(series, "Cash", 6)).toBe(1200);
+    expect(netWorthAt(series, "Cash", 40)).toBe(1200);
+  });
+
+  it("totals the carried-forward figures across assets", () => {
+    const a = Array(MAX_MONTHS).fill(0); a[0] = 100;
+    const b = Array(MAX_MONTHS).fill(0); b[3] = 50;
+    expect(netWorthTotalAt({ a, b }, ["a", "b"], 0)).toBe(100);
+    expect(netWorthTotalAt({ a, b }, ["a", "b"], 3)).toBe(150);
+  });
+
+  it("returns zero for an asset with no data at all", () => {
+    expect(netWorthAt({}, "Nope", 5)).toBe(0);
   });
 });
