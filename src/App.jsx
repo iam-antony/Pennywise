@@ -125,7 +125,7 @@ function FormulaCell({ value, onCommit, placeholder, style }) {
 }
 
 function StatCard({ icon, label, value, sub, delta, deltaLabel = "vs baseline", posGood = true, valueTone }) {
-  const { fmt, fmtS } = useMoney();
+  const { fmtS } = useMoney();
   const good = posGood ? T.success : T.danger, bad = posGood ? T.danger : T.success;
   return (
     <div className="stat-card">
@@ -134,24 +134,6 @@ function StatCard({ icon, label, value, sub, delta, deltaLabel = "vs baseline", 
       <div style={{ fontFamily:"'Playfair Display'", fontSize:22, fontWeight:600, color:valueTone || T.accent }}>{value}</div>
       {sub && <div style={{ fontSize:12, color:T.sub, marginTop:3 }}>{sub}</div>}
       {delta !== undefined && <div style={{ fontSize:12, color:delta >= 0 ? good : bad, marginTop:4 }}>{fmtS(delta)} {deltaLabel}</div>}
-    </div>
-  );
-}
-
-function BudgetBar({ label, actual, budget, color = T.accent }) {
-  const { fmt } = useMoney();
-  const pct = budget > 0 ? (actual/budget)*100 : 0, over = actual > budget;
-  return (
-    <div style={{ marginBottom:9 }}>
-      <div style={{ display:"flex", justifyContent:"space-between", marginBottom:3 }}>
-        <span style={{ fontSize:12, color:T.sub }}>{label}</span>
-        <span style={{ fontSize:12, fontWeight:500, color:over?T.danger:T.text }}>
-          {fmt(actual)} <span style={{ color:T.sub, fontWeight:400 }}>/ {fmt(budget)}</span>
-        </span>
-      </div>
-      <div style={{ height:5, background:T.border, borderRadius:3, overflow:"hidden" }}>
-        <div style={{ height:"100%", width:`${Math.min(pct,100)}%`, background:over?T.danger:color, borderRadius:3, transition:"width .4s" }} />
-      </div>
     </div>
   );
 }
@@ -183,7 +165,6 @@ function FYSettingsModal({ fyStart, totalMonths, onSave, onClose }) {
   const [tm, setTm] = useState(totalMonths);
 
   const fys = useMemo(() => getAllFYs(s, tm), [s, tm]);
-  const firstFY = fys[0];
   const lastFY = fys[fys.length - 1];
   const firstMonth = MONTHS[0];
   const lastMonth = MONTHS[tm - 1];
@@ -400,17 +381,6 @@ function BaselineEditorModal({ section, streams, data, fyStart, totalMonths, onS
       return { ...prev, [stream]: arr };
     });
   };
-  const fillAllStreams = (mi, val) => {
-    setDraft(prev => {
-      const next = { ...prev };
-      streams.forEach(s => {
-        const arr = [...(next[s] || Array(MAX_MONTHS).fill(0))];
-        arr[mi] = parseFloat(val) || 0;
-        next[s] = arr;
-      });
-      return next;
-    });
-  };
   const copyFromPrev = () => {
     const prevFY = fys.find(f => f.year === selFY - 1);
     if (!prevFY) return;
@@ -559,7 +529,7 @@ function ComboChart({ title, streams, weeklyData, forecastData, baselineData, fy
   }), [streams]);
   const [picker, setPicker] = useState(false);
 
-  let cb=0,cf=0,ca=0,runP=0, lastActIdx=-1;
+  let cb=0,cf=0,ca=0, lastActIdx=-1;
   const raw = fyMonths.map(mi => {
     const baseline = sel.reduce((a,s)=>a+(baselineData[s]?.[mi]||0),0);
     const forecast = sel.reduce((a,s)=>a+(forecastData[s]?.[mi]||0),0);
@@ -662,7 +632,6 @@ function FYSummaryTable({ streams, fyMonths, baselineData, forecastData, weeklyD
   const { fmt, fmtS } = useMoney();
   const isWeekly = !!weeklyData;
   const getVal = (s, mi) => isWeekly ? weeklyTotal(weeklyData, s, mi) : monthlyVal(incomeActual, s, mi);
-  const getFc   = (s, mi) => monthlyVal(forecastData, s, mi);
   const getBl   = (s, mi) => monthlyVal(baselineData, s, mi);
   const good = type === "savings";
 
@@ -723,7 +692,6 @@ function WeeklyEntryTable({ streams, weeklyData, baselineData, forecastData, mon
 
   const getNote = (s, w) => notes?.[s]?.[monthIdx]?.[w] || "";
   const hasNote = (s, w) => !!getNote(s, w);
-  const hasAnyNote = (s) => WEEKS.some(w => hasNote(s, w));
 
   return (
     <div>
@@ -1052,15 +1020,12 @@ function Dashboard({ monthIdx, fyStart, totalMonths, incomeStreams, savingsStrea
   onFYSettings }) {
   const { fmt } = useMoney();
 
-  const fys = useMemo(() => getAllFYs(fyStart, totalMonths), [fyStart, totalMonths]);
   const [selFY, setSelFY] = useState(() => getFYYear(monthIdx, fyStart));
   const [viewMode, setViewMode] = useState("month");
-  const [fySettingsOpen, setFYSettingsOpen] = useState(false);
 
   useEffect(() => setSelFY(getFYYear(monthIdx, fyStart)), [monthIdx, fyStart]);
 
   const fyMonths = getFYMonths(selFY, fyStart, totalMonths);
-  const fyIdxs = viewMode === "fy" ? fyMonths : [monthIdx];
 
   // Current month stats
   const actInc = allMonthly(incomeStreams, incomeActual, monthIdx);
@@ -2078,7 +2043,7 @@ export default function App() {
       save("bt3-expN", expNotes), save("bt3-incN", incomeNotes),
     ]);
     setSaved(true); setTimeout(()=>setSaved(false), 2000);
-  }, [fyStart,totalMonths,currency,incomeStreams,savingsStreams,expStreams,baselineIncome,baselineSavings,baselineExp,
+  }, [fyStart,totalMonths,currency,userName,savingsGoal,incomeStreams,savingsStreams,expStreams,baselineIncome,baselineSavings,baselineExp,
       incomeActual,savingsForecast,savingsWeekly,expForecast,expWeekly,netWorth,moneyOwed,expNotes,incomeNotes]);
 
   // Category handlers — ensure data structures when streams change
