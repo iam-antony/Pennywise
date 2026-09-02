@@ -1,16 +1,23 @@
 import { useState, useEffect, useCallback, useMemo, createContext, useContext } from "react";
 import { ComposedChart, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
-import { MAX_MONTHS, MONTHS, MONTH_NAMES, WEEKS, getFYYear, getAllFYs, fyLabel, getFYMonths } from "./lib/calendar.js";
+import { MAX_MONTHS, MONTH_NAMES, WEEKS, LEGACY_EPOCH, makeCalendar, fyLabel,
+  epochForNewProfile, monthIndexOf, shiftEpoch } from "./lib/calendar.js";
 import { CURRENCIES, flagEmoji } from "./lib/currencies.js";
 import { makeFormatters } from "./lib/money.js";
-import { isInvestment, inferSavingsKind, withSavingsKinds, DEFAULT_INCOME_STREAMS, DEFAULT_SAVINGS_STREAMS, DEFAULT_EXP_STREAMS, makeBaselineIncome, makeBaselineSavings, makeBaselineExp, NET_WORTH_ASSETS, DEFAULT_NET_WORTH, blankWeekly, weeklyTotal, allStreamsWeekly, monthlyVal, allMonthly, applyStreams, applyNotes } from "./lib/data.js";
+import { isInvestment, inferSavingsKind, withSavingsKinds, shiftAllArrays, shiftAllWeekly, shiftNotes, wouldLoseData, DEFAULT_INCOME_STREAMS, DEFAULT_SAVINGS_STREAMS, DEFAULT_EXP_STREAMS, makeBaselineIncome, makeBaselineSavings, makeBaselineExp, NET_WORTH_ASSETS, DEFAULT_NET_WORTH, blankWeekly, weeklyTotal, allStreamsWeekly, monthlyVal, allMonthly, applyStreams, applyNotes } from "./lib/data.js";
 import { load, save } from "./lib/storage.js";
 import { isFormula, parseEntry } from "./lib/expr.js";
 import { T, CC, STYLES } from "./theme.js";
 
 const CurrencyContext = createContext(makeFormatters(CURRENCIES[0]));
 const useMoney = () => useContext(CurrencyContext);
+
+// The month table and the financial-year maths depend on where the user's
+// timeline starts, so they are built once per epoch and passed down rather
+// than being module-level constants pinned to January 2026.
+const CalendarContext = createContext(makeCalendar(LEGACY_EPOCH));
+const useCalendar = () => useContext(CalendarContext);
 
 // Local state that follows a value derived from props, while still letting the
 // user override it until that derived value next changes. This is React's
@@ -153,7 +160,8 @@ function StatCard({ icon, label, value, sub, delta, deltaLabel = "vs baseline", 
 
 // ─── FY TOOLBAR ───────────────────────────────────────────────────────────────
 function FYToolbar({ fyStart, monthIdx, totalMonths = 48, selectedFY, onSelectFY, viewMode, onViewMode, onSettings }) {
-  const fys = useMemo(() => getAllFYs(fyStart, totalMonths), [fyStart, totalMonths]);
+  const { getAllFYs } = useCalendar();
+  const fys = useMemo(() => getAllFYs(fyStart, totalMonths), [getAllFYs, fyStart, totalMonths]);
   return (
     <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", marginBottom:18, padding:"10px 14px", background:T.inputBg, borderRadius:10, border:`1px solid ${T.border}` }}>
       <div style={{ display:"flex", gap:5, flexWrap:"wrap", flex:1 }}>
@@ -173,11 +181,13 @@ function FYToolbar({ fyStart, monthIdx, totalMonths = 48, selectedFY, onSelectFY
 }
 
 // ─── FY SETTINGS MODAL ───────────────────────────────────────────────────────
-function FYSettingsModal({ fyStart, totalMonths, onSave, onClose }) {
+function FYSettingsModal({ fyStart, totalMonths, onSave, onClose, onAddEarlier }) {
+  const { MONTHS, getAllFYs } = useCalendar();
   const [s, setS] = useState(fyStart);
-  const [tm, setTm] = useState(totalMonths);
+  // Follows the prop, so adding an earlier year updates the open dialog too.
+  const [tm, setTm] = useSyncedState(totalMonths);
 
-  const fys = useMemo(() => getAllFYs(s, tm), [s, tm]);
+  const fys = useMemo(() => getAllFYs(s, tm), [getAllFYs, s, tm]);
   const lastFY = fys[fys.length - 1];
   const firstMonth = MONTHS[0];
   const lastMonth = MONTHS[tm - 1];
@@ -207,17 +217,27 @@ function FYSettingsModal({ fyStart, totalMonths, onSave, onClose }) {
           <div className="sl" style={{ marginBottom:10 }}>Timeline Range</div>
           <div style={{ fontSize:13, color:T.sub, marginBottom:14 }}>
             Currently tracking <strong style={{ color:T.text }}>{fys.length} financial years</strong> — {firstMonth?.label} through {lastMonth?.label}.
-            Add future years as you go.
+            Add future years as you go, or an earlier one to enter figures from before you started.
           </div>
 
           {/* FY chips */}
           <div style={{ display:"flex", flexWrap:"wrap", gap:6, marginBottom:16 }}>
+            {onAddEarlier && (
+              <button onClick={onAddEarlier}
+                title="Move the start of your timeline back a year so you can enter earlier figures"
+                style={{ padding:"4px 12px", borderRadius:6, fontSize:12, fontWeight:600, cursor:"pointer",
+                  background:"transparent", border:`1px dashed ${T.blue}`, color:T.blue,
+                  display:"flex", alignItems:"center", gap:5, transition:"all .15s" }}>
+                + Earlier year
+              </button>
+            )}
             {fys.map(f => (
               <div key={f.year} style={{ padding:"4px 12px", borderRadius:6, fontSize:12, fontWeight:500,
                 background: f === lastFY ? "rgba(212,168,83,.15)" : "rgba(255,255,255,.04)",
                 border:`1px solid ${f === lastFY ? T.accent : T.border}`,
                 color: f === lastFY ? T.accent : T.sub }}>
                 {fyLabel(f.year, s)}
+                {f.partial && <span style={{ marginLeft:6, fontSize:10, opacity:.7 }}>· {f.indices.length} mo</span>}
                 {f === lastFY && <span style={{ marginLeft:6, fontSize:10, opacity:.7 }}>← latest</span>}
               </div>
             ))}
@@ -387,8 +407,9 @@ function CategoryModal({ title, streams, kinds, onSave, onClose }) {
 
 // ─── BASELINE EDITOR ─────────────────────────────────────────────────────────
 function BaselineEditorModal({ section, streams, data, fyStart, totalMonths, onSave, onClose }) {
+  const { MONTHS, getFYMonths, getAllFYs } = useCalendar();
   const { fmt } = useMoney();
-  const fys = useMemo(() => getAllFYs(fyStart, totalMonths), [fyStart, totalMonths]);
+  const fys = useMemo(() => getAllFYs(fyStart, totalMonths), [getAllFYs, fyStart, totalMonths]);
   const [selFY, setSelFY] = useState(fys[0]?.year);
   const [draft, setDraft] = useState(() => JSON.parse(JSON.stringify(data)));
   const [fillVal, setFillVal] = useState({});
@@ -548,6 +569,7 @@ function AnnotatedTooltip({ active, payload, label }) {
 }
 
 function ComboChart({ title, streams, weeklyData, forecastData, baselineData, fyMonths, color, type }) {
+  const { MONTHS } = useCalendar();
   const { fmt, fmtAxis } = useMoney();
   const [sel, setSel] = useState(streams);
   // Keep the picker in step when categories are added or removed, preserving
@@ -665,6 +687,7 @@ function ComboChart({ title, streams, weeklyData, forecastData, baselineData, fy
 
 // ─── FY SUMMARY TABLE (used in Income / Savings / Expenditure FY view) ────────
 function FYSummaryTable({ streams, fyMonths, baselineData, forecastData, weeklyData, incomeActual, type }) {
+  const { MONTHS } = useCalendar();
   const { fmt, fmtS } = useMoney();
   const isWeekly = !!weeklyData;
   const getVal = (s, mi) => isWeekly ? weeklyTotal(weeklyData, s, mi) : monthlyVal(incomeActual, s, mi);
@@ -715,6 +738,7 @@ function FYSummaryTable({ streams, fyMonths, baselineData, forecastData, weeklyD
 
 // ─── WEEKLY ENTRY TABLE ───────────────────────────────────────────────────────
 function WeeklyEntryTable({ streams, weeklyData, baselineData, forecastData, monthIdx, onUpdateWeekly, onUpdateForecast, type, notes, onUpdateNote }) {
+  const { MONTHS } = useCalendar();
   const { fmt, fmtS } = useMoney();
   const [activeWeek, setActiveWeek] = useState(1);
   const [expandedNote, setExpandedNote] = useState(null); // stream key for expanded note row
@@ -1054,6 +1078,7 @@ function SankeyDiagram({ incomeStreams, savingsStreams, expStreams, savingsTypes
 function Dashboard({ monthIdx, fyStart, totalMonths, incomeStreams, savingsStreams, expStreams,
   baselineIncome, baselineSavings, baselineExp, incomeActual, savingsForecast, savingsWeekly, expForecast, expWeekly,
   onFYSettings, savingsTypes }) {
+  const { MONTHS, getFYYear, getFYMonths } = useCalendar();
   const { fmt } = useMoney();
 
   const [selFY, setSelFY] = useSyncedState(getFYYear(monthIdx, fyStart));
@@ -1163,6 +1188,7 @@ function Dashboard({ monthIdx, fyStart, totalMonths, incomeStreams, savingsStrea
 }
 
 function IncomePage({ monthIdx, fyStart, totalMonths, streams, setStreams, baselineData, actualData, onUpdate, onEditBaseline, incomeNotes, onUpdateIncomeNote, onFYSettings }) {
+  const { MONTHS, getFYYear, getFYMonths } = useCalendar();
   const { fmt, fmtS } = useMoney();
   const [catModal, setCatModal] = useState(false);
   const [viewMode, setViewMode] = useState("month");
@@ -1302,6 +1328,7 @@ function IncomePage({ monthIdx, fyStart, totalMonths, streams, setStreams, basel
 
 function SavingsPage({ monthIdx, fyStart, totalMonths, streams, setStreams, baselineData, forecastData, weeklyData,
   onUpdateWeekly, onUpdateForecast, onEditBaseline, onFYSettings, savingsTypes }) {
+  const { MONTHS, getFYYear, getFYMonths } = useCalendar();
   const { fmt, fmtAxis } = useMoney();
   const [catModal, setCatModal] = useState(false);
   const [viewMode, setViewMode] = useState("month");
@@ -1358,6 +1385,7 @@ function SavingsPage({ monthIdx, fyStart, totalMonths, streams, setStreams, base
 
 function ExpenditurePage({ monthIdx, fyStart, totalMonths, streams, setStreams, baselineData, forecastData, weeklyData,
   onUpdateWeekly, onUpdateForecast, onEditBaseline, expNotes, onUpdateExpNote, onFYSettings }) {
+  const { MONTHS, getFYYear, getFYMonths } = useCalendar();
   const { fmt, fmtAxis } = useMoney();
   const [catModal, setCatModal] = useState(false);
   const [viewMode, setViewMode] = useState("month");
@@ -1531,9 +1559,10 @@ function MoneyOwedPage({ rows, onUpdate }) {
 
 function BaselinePage({ monthIdx, fyStart, totalMonths, incomeStreams, savingsStreams, expStreams,
   baselineIncome, baselineSavings, baselineExp, onUpdateBaseline, onEditBaseline }) {
+  const { MONTHS, getFYYear, getFYMonths, getAllFYs } = useCalendar();
   const { fmt } = useMoney();
   const [selFY, setSelFY] = useSyncedState(getFYYear(monthIdx, fyStart));
-  const fys = useMemo(() => getAllFYs(fyStart, totalMonths), [fyStart, totalMonths]);
+  const fys = useMemo(() => getAllFYs(fyStart, totalMonths), [getAllFYs, fyStart, totalMonths]);
   const fyMonths = getFYMonths(selFY, fyStart, totalMonths);
 
   return (
@@ -1942,10 +1971,11 @@ export default function App() {
   const [onboardLoading, setOnboardLoading] = useState(true);
   const [userName, setUserName] = useState("");
   const [page, setPage] = useState("dashboard");
-  const [monthIdx, setMonthIdx] = useState(() => {
-    const now = new Date();
-    return Math.max(0, Math.min((now.getFullYear()-2026)*12+(now.getMonth()-0), MAX_MONTHS-1));
-  });
+  // Where this profile's timeline starts. Profiles created before the timeline
+  // could move carry no epoch, and fall back to the original January 2026.
+  const [epoch, setEpoch] = useState(LEGACY_EPOCH);
+  const [monthIdx, setMonthIdx] = useState(() =>
+    Math.max(0, Math.min(monthIndexOf(LEGACY_EPOCH), MAX_MONTHS - 1)));
   const [loading, setLoading] = useState(true);
   const [saved, setSaved] = useState(false);
   const [fyStart, setFYStart] = useState(3); // April default
@@ -1990,9 +2020,9 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      const keys = ["fy","tm","curr","cats","bInc","bSav","bExp","incAct","savFc","savWk","expFc","expWk","nw","mo","expN","incN","dver","name","goal","done","savTypes"];
+      const keys = ["fy","tm","curr","cats","bInc","bSav","bExp","incAct","savFc","savWk","expFc","expWk","nw","mo","expN","incN","dver","name","goal","done","savTypes","epoch"];
       const res = await Promise.all(keys.map(k => load(`bt3-${k}`, null)));
-      const [fy,tm,curr,cats,bInc,bSav,bExp,incAct,savFc,savWk,expFc,expWk,nw,mo,expN,incN,dver,uname,goal,done,savTypes] = res;
+      const [fy,tm,curr,cats,bInc,bSav,bExp,incAct,savFc,savWk,expFc,expWk,nw,mo,expN,incN,dver,uname,goal,done,savTypes,storedEpoch] = res;
 
       // Onboarding flag
       if (done) { setOnboarded(true); }
@@ -2003,6 +2033,9 @@ export default function App() {
       // the fresh seed functions above are used instead.
       const freshSeed = dver !== DATA_VER;
 
+      const ep = storedEpoch && Number.isInteger(storedEpoch.year) ? storedEpoch : LEGACY_EPOCH;
+      setEpoch(ep);
+      setMonthIdx(Math.max(0, Math.min(monthIndexOf(ep), MAX_MONTHS - 1)));
       if (fy !== null) setFYStart(fy);
       if (tm !== null) setTotalMonths(tm);
       if (curr) { const found = CURRENCIES.find(c => c.code === curr); if (found) setCurrency(found); }
@@ -2029,9 +2062,12 @@ export default function App() {
 
   // Called when user completes onboarding
   const handleOnboardingComplete = useCallback(async ({ name, currency: c, fyStart: fy, monthlyIncome: mInc, savingsGoal: goal, savingsCats, expCats }) => {
+    const newEpoch = epochForNewProfile(fy);
     setUserName(name);
     setCurrency(c);
     setFYStart(fy);
+    setEpoch(newEpoch);
+    setMonthIdx(Math.max(0, Math.min(monthIndexOf(newEpoch), MAX_MONTHS - 1)));
     setSavingsGoal(goal);
     setSavingsStreams(savingsCats);
     setExpStreams(expCats);
@@ -2075,6 +2111,7 @@ export default function App() {
       save("bt3-name", name),
       save("bt3-curr", c.code),
       save("bt3-fy", fy),
+      save("bt3-epoch", newEpoch),
       save("bt3-goal", goal),
       save("bt3-cats", { income: incStreams, savings: savingsCats, exp: expCats }),
       save("bt3-bInc", newBaselineIncome),
@@ -2085,6 +2122,36 @@ export default function App() {
       save("bt3-dver", DATA_VER),
     ]);
   }, []);
+
+  // Growing the window backwards moves the epoch back a year and slides every
+  // stored series forward to match, so existing entries stay on their months.
+  const addEarlierYear = useCallback(() => {
+    const N = 12;
+    // Only the actuals are guarded. Baselines and forecasts repeat a plan
+    // across the whole window by design, so their tail is not recorded data —
+    // treating it as such made this refuse every time.
+    const recorded = [incomeActual, savingsWeekly, expWeekly];
+    if (recorded.some(d => wouldLoseData(d, N))) {
+      window.alert(
+        "Adding an earlier year would push your most recent 12 months off the end of the timeline, " +
+        "which only holds 10 years. Nothing has been changed."
+      );
+      return;
+    }
+    setEpoch(e => shiftEpoch(e, -N));
+    setMonthIdx(i => Math.min(i + N, MAX_MONTHS - 1));
+    setTotalMonths(t => Math.min(t + N, MAX_MONTHS));
+    setBaselineIncome(d => shiftAllArrays(d, N));
+    setBaselineSavings(d => shiftAllArrays(d, N));
+    setBaselineExp(d => shiftAllArrays(d, N));
+    setIncomeActual(d => shiftAllArrays(d, N));
+    setSavingsForecast(d => shiftAllArrays(d, N));
+    setExpForecast(d => shiftAllArrays(d, N));
+    setSavingsWeekly(d => shiftAllWeekly(d, N));
+    setExpWeekly(d => shiftAllWeekly(d, N));
+    setExpNotes(n => shiftNotes(n, N));
+    setIncomeNotes(n => shiftNotes(n, N));
+  }, [incomeActual, savingsWeekly, expWeekly]);
 
   const handleSave = useCallback(async () => {
     await Promise.all([
@@ -2097,6 +2164,7 @@ export default function App() {
       save("bt3-done", true),
       save("bt3-cats", { income:incomeStreams, savings:savingsStreams, exp:expStreams }),
       save("bt3-savTypes", savingsTypes),
+      save("bt3-epoch", epoch),
       save("bt3-bInc", baselineIncome), save("bt3-bSav", baselineSavings), save("bt3-bExp", baselineExp),
       save("bt3-incAct", incomeActual), save("bt3-savFc", savingsForecast), save("bt3-savWk", savingsWeekly),
       save("bt3-expFc", expForecast), save("bt3-expWk", expWeekly),
@@ -2104,7 +2172,7 @@ export default function App() {
       save("bt3-expN", expNotes), save("bt3-incN", incomeNotes),
     ]);
     setSaved(true); setTimeout(()=>setSaved(false), 2000);
-  }, [fyStart,totalMonths,currency,userName,savingsGoal,savingsTypes,incomeStreams,savingsStreams,expStreams,baselineIncome,baselineSavings,baselineExp,
+  }, [fyStart,totalMonths,currency,userName,savingsGoal,savingsTypes,epoch,incomeStreams,savingsStreams,expStreams,baselineIncome,baselineSavings,baselineExp,
       incomeActual,savingsForecast,savingsWeekly,expForecast,expWeekly,netWorth,moneyOwed,expNotes,incomeNotes]);
 
   // Category handlers — ensure data structures when streams change
@@ -2169,6 +2237,7 @@ export default function App() {
   // Formatters for the selected currency, handed to the tree via context so no
   // module-level state has to be written during render.
   const money = useMemo(() => makeFormatters(currency), [currency]);
+  const calendar = useMemo(() => makeCalendar(epoch), [epoch]);
 
   const navItems = [
     {key:"dashboard",icon:"◈",label:"Dashboard"},
@@ -2200,11 +2269,13 @@ export default function App() {
 
   return (
     <CurrencyContext.Provider value={money}>
+    <CalendarContext.Provider value={calendar}>
     <div style={{ minHeight:"100vh", background:T.bg }}>
       <style>{STYLES}</style>
 
       {/* FY Settings Modal */}
-      {fySettingsOpen && <FYSettingsModal fyStart={fyStart} totalMonths={totalMonths} onSave={(newFy, newTm)=>{setFYStart(newFy);setTotalMonths(newTm);setFYSettingsOpen(false);}} onClose={()=>setFYSettingsOpen(false)}/>}
+      {fySettingsOpen && <FYSettingsModal fyStart={fyStart} totalMonths={totalMonths} onAddEarlier={addEarlierYear}
+        onSave={(newFy, newTm)=>{setFYStart(newFy);setTotalMonths(newTm);setFYSettingsOpen(false);}} onClose={()=>setFYSettingsOpen(false)}/>}
 
       {/* Currency Modal */}
       {currencyOpen && <CurrencyModal current={currency} onSave={c=>{setCurrency(c);setCurrencyOpen(false);}} onClose={()=>setCurrencyOpen(false)}/>}
@@ -2229,7 +2300,7 @@ export default function App() {
         </div>
         <div style={{ display:"flex", alignItems:"center", gap:8 }}>
           <button className="month-btn" onClick={()=>setMonthIdx(Math.max(0,monthIdx-1))}>‹</button>
-          <div style={{ fontSize:14, fontWeight:600, minWidth:104, textAlign:"center" }}>{MONTHS[monthIdx]?.label}</div>
+          <div style={{ fontSize:14, fontWeight:600, minWidth:104, textAlign:"center" }}>{calendar.MONTHS[monthIdx]?.label}</div>
           <button className="month-btn" onClick={()=>setMonthIdx(Math.min(totalMonths-1,monthIdx+1))}>›</button>
         </div>
         <div style={{ display:"flex", gap:8 }}>
@@ -2297,6 +2368,7 @@ export default function App() {
         </div>
       </div>
     </div>
+    </CalendarContext.Provider>
     </CurrencyContext.Provider>
   );
 }

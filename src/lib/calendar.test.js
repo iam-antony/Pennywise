@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { MONTHS, MAX_MONTHS, getFYYear, getAllFYs, getFYMonths, fyLabel } from "./calendar.js";
+import { MAX_MONTHS, LEGACY_EPOCH, makeCalendar, fyLabel } from "./calendar.js";
+
+// These all pin the behaviour of a profile created before the timeline could
+// move. The epoch is now configurable (see timeline.test.js), but anyone who
+// already has data must keep seeing exactly what they saw before.
+const { MONTHS, getFYYear, getAllFYs, getFYMonths } = makeCalendar(LEGACY_EPOCH);
 
 describe("the month table", () => {
   it("runs from January 2026 for ten years", () => {
@@ -21,7 +26,6 @@ describe("the month table", () => {
 
 describe("getFYYear", () => {
   it("puts months before the FY start into the previous financial year", () => {
-    // April start: Jan–Mar 2026 belong to FY 2025
     expect(getFYYear(0, 3)).toBe(2025);
     expect(getFYYear(2, 3)).toBe(2025);
     expect(getFYYear(3, 3)).toBe(2026);
@@ -48,11 +52,14 @@ describe("getFYMonths", () => {
     expect(getFYMonths(2040, 3, 48)).toEqual([]);
   });
 
-  // P3-03, still open: because the calendar starts in January and the default
-  // financial year starts in April, the first FY tab holds only three months
-  // and always reads as a large shortfall. Update this when that is fixed.
-  it("currently produces a three-month stub as the first financial year", () => {
+  // P3-03: an existing April-year profile still has a three-month first tab,
+  // because its window starts in January. It is now flagged as partial so the
+  // UI can label it, and its targets are pro-rated, rather than it reading as
+  // a year that missed by nine months. New profiles start on their FY boundary
+  // and have no stub at all — see timeline.test.js.
+  it("still produces the legacy three-month first year", () => {
     expect(getFYMonths(2025, 3, 48)).toEqual([0, 1, 2]);
+    expect(getAllFYs(3, 48)[0].partial).toBe(true);
   });
 });
 
@@ -67,6 +74,7 @@ describe("getAllFYs", () => {
     const fys = getAllFYs(0, 48);
     expect(fys.map(f => f.year)).toEqual([2026, 2027, 2028, 2029]);
     expect(fys.every(f => f.indices.length === 12)).toBe(true);
+    expect(fys.every(f => !f.partial)).toBe(true);
   });
 });
 

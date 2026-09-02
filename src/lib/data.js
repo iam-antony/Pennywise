@@ -86,4 +86,53 @@ function applyNotes(notes, streams, origin = {}) {
   return u;
 }
 
-export { inferSavingsKind, savingsKind, isInvestment, withSavingsKinds, DEFAULT_INCOME_STREAMS, DEFAULT_SAVINGS_STREAMS, DEFAULT_EXP_STREAMS, makeBaselineIncome, makeBaselineSavings, makeBaselineExp, NET_WORTH_ASSETS, DEFAULT_NET_WORTH, blankWeekly, weeklyTotal, allStreamsWeekly, monthlyVal, allMonthly, applyStreams, applyNotes };
+// ─── EXTENDING THE TIMELINE BACKWARDS ─────────────────────────────────────────
+// Every series is indexed by months since the epoch, so moving the epoch back
+// means sliding all of the stored data forward by the same number of months.
+// The window is fixed at MAX_MONTHS, so anything pushed off the far end is
+// dropped — the callers below refuse the move when that would lose real data.
+
+// A monthly series: [v0, v1, …] → n zeros, then the old values.
+const shiftArray = (arr, n) =>
+  [...Array(n).fill(0), ...(arr || [])].slice(0, MAX_MONTHS);
+
+// A weekly series: { [monthIdx]: {1..5} } → the same weeks, n months later.
+function shiftWeekly(weeks, n) {
+  const out = blankWeekly();
+  Object.entries(weeks || {}).forEach(([mi, w]) => {
+    const to = Number(mi) + n;
+    if (to < MAX_MONTHS) out[to] = { ...w };
+  });
+  return out;
+}
+
+// A notes map: { [stream]: { [monthIdx]: … } }, month keys moved by n.
+function shiftNotes(notes, n) {
+  const out = {};
+  Object.entries(notes || {}).forEach(([stream, byMonth]) => {
+    const moved = {};
+    Object.entries(byMonth || {}).forEach(([mi, v]) => {
+      const to = Number(mi) + n;
+      if (to < MAX_MONTHS) moved[to] = v;
+    });
+    out[stream] = moved;
+  });
+  return out;
+}
+
+const shiftAllArrays = (data, n) =>
+  Object.fromEntries(Object.entries(data || {}).map(([k, v]) => [k, shiftArray(v, n)]));
+const shiftAllWeekly = (data, n) =>
+  Object.fromEntries(Object.entries(data || {}).map(([k, v]) => [k, shiftWeekly(v, n)]));
+
+// True when sliding forward by n months would push a non-zero value off the end.
+function wouldLoseData(series, n) {
+  return Object.values(series || {}).some(v => {
+    if (Array.isArray(v)) return v.slice(MAX_MONTHS - n).some(x => x > 0);
+    return Object.entries(v || {}).some(([mi, w]) =>
+      Number(mi) >= MAX_MONTHS - n && WEEKS.some(k => (w?.[k] || 0) > 0));
+  });
+}
+
+export { shiftArray, shiftWeekly, shiftNotes, shiftAllArrays, shiftAllWeekly, wouldLoseData,
+  inferSavingsKind, savingsKind, isInvestment, withSavingsKinds, DEFAULT_INCOME_STREAMS, DEFAULT_SAVINGS_STREAMS, DEFAULT_EXP_STREAMS, makeBaselineIncome, makeBaselineSavings, makeBaselineExp, NET_WORTH_ASSETS, DEFAULT_NET_WORTH, blankWeekly, weeklyTotal, allStreamsWeekly, monthlyVal, allMonthly, applyStreams, applyNotes };
