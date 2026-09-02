@@ -12,16 +12,27 @@ import { T, CC, STYLES } from "./theme.js";
 const CurrencyContext = createContext(makeFormatters(CURRENCIES[0]));
 const useMoney = () => useContext(CurrencyContext);
 
+// Local state that follows a value derived from props, while still letting the
+// user override it until that derived value next changes. This is React's
+// "adjust state during render" pattern: a synchronising effect renders once
+// with the stale value and then again with the corrected one, which is both
+// slower and, for the financial-year selector below, visibly wrong for a frame.
+function useSyncedState(derived) {
+  const [value, setValue] = useState(derived);
+  const [seen, setSeen] = useState(derived);
+  if (seen !== derived) { setSeen(derived); setValue(derived); }
+  return [value, setValue];
+}
+
 // ─── REUSABLE ATOMS ───────────────────────────────────────────────────────────
 function NumInput({ value, onChange, className = "inp inp-num", disabled }) {
   const { separators } = useMoney();
-  const [raw, setRaw]       = useState(value != null && value !== 0 ? String(value) : "");
+  const display = value != null && value !== 0 ? String(value) : "";
+  const [raw, setRaw]       = useState(display);
   const [focused, setFocus] = useState(false);
-
-  // Sync external value changes when not actively editing
-  useEffect(() => {
-    if (!focused) setRaw(value != null && value !== 0 ? String(value) : "");
-  }, [value, focused]);
+  // Adopt an external change once the field is no longer being edited.
+  const [seen, setSeen] = useState(display);
+  if (!focused && seen !== display) { setSeen(display); setRaw(display); }
 
   const formula = isFormula(raw);
   const result  = parseEntry(raw, separators);
@@ -82,9 +93,11 @@ function NumInput({ value, onChange, className = "inp inp-num", disabled }) {
 // Compact formula-aware cell for the baseline editor grid
 function FormulaCell({ value, onCommit, placeholder, style }) {
   const { separators } = useMoney();
-  const [raw, setRaw]       = useState(value != null && value !== "" && value !== 0 ? String(value) : "");
+  const display = value != null && value !== "" && value !== 0 ? String(value) : "";
+  const [raw, setRaw]       = useState(display);
   const [focused, setFocus] = useState(false);
-  useEffect(() => { if (!focused) setRaw(value != null && value !== "" && value !== 0 ? String(value) : ""); }, [value, focused]);
+  const [seen, setSeen] = useState(display);
+  if (!focused && seen !== display) { setSeen(display); setRaw(display); }
 
   const formula = isFormula(raw);
   const result  = parseEntry(raw, separators);
@@ -522,34 +535,42 @@ function AnnotatedTooltip({ active, payload, label }) {
 function ComboChart({ title, streams, weeklyData, forecastData, baselineData, fyMonths, color, type }) {
   const { fmt, fmtAxis } = useMoney();
   const [sel, setSel] = useState(streams);
-  useEffect(() => setSel(prev => {
-    const valid = prev.filter(s => streams.includes(s));
-    const added = streams.filter(s => !prev.includes(s));
-    return [...valid, ...added];
-  }), [streams]);
+  // Keep the picker in step when categories are added or removed, preserving
+  // whatever the user had already deselected.
+  const [seenStreams, setSeenStreams] = useState(streams);
+  if (seenStreams !== streams) {
+    setSeenStreams(streams);
+    setSel(prev => [...prev.filter(x => streams.includes(x)), ...streams.filter(x => !prev.includes(x))]);
+  }
   const [picker, setPicker] = useState(false);
 
-  let cb=0,cf=0,ca=0, lastActIdx=-1;
-  const raw = fyMonths.map(mi => {
+  // Built with reduce rather than accumulators mutated inside a map, so nothing
+  // is reassigned mid-render — the pattern the React Compiler rejects.
+  const { rows: raw, lastActIdx } = fyMonths.reduce((acc, mi) => {
     const baseline = sel.reduce((a,s)=>a+(baselineData[s]?.[mi]||0),0);
     const forecast = sel.reduce((a,s)=>a+(forecastData[s]?.[mi]||0),0);
     const actual   = sel.reduce((a,s)=>a+weeklyTotal(weeklyData,s,mi),0);
     const hasAct   = actual > 0;
-    cb+=baseline; cf+=forecast; if(hasAct){ca+=actual; lastActIdx=mi;}
-    return { name:MONTHS[mi]?.short, mi, baseline, forecast,
-      actual:actual, cumBaseline:cb, cumForecast:cf, cumActual:hasAct||ca>0?ca:null };
-  });
+    const cb = acc.cb + baseline, cf = acc.cf + forecast, ca = acc.ca + (hasAct ? actual : 0);
+    acc.rows.push({ name:MONTHS[mi]?.short, mi, baseline, forecast,
+      actual, cumBaseline:cb, cumForecast:cf, cumActual: hasAct || ca > 0 ? ca : null });
+    return { ...acc, cb, cf, ca, lastActIdx: hasAct ? mi : acc.lastActIdx };
+  }, { rows: [], cb: 0, cf: 0, ca: 0, lastActIdx: -1 });
 
   const monthsWithData = raw.filter(d=>d.actual>0);
   const avgMonthly = monthsWithData.length>1 ? monthsWithData.reduce((a,d)=>a+d.actual,0)/monthsWithData.length : 0;
-  let rp = monthsWithData.length>0 ? monthsWithData[monthsWithData.length-1].cumActual : 0;
-  const data = raw.map((d,i)=>{
+  const lastCum = monthsWithData.length>0 ? monthsWithData[monthsWithData.length-1].cumActual : 0;
+  const data = raw.map(d => {
     let projection = null;
-    if(lastActIdx>=0 && avgMonthly>0){
-      if(d.mi===lastActIdx) projection = d.cumActual;
-      else if(d.mi>lastActIdx){ rp+=avgMonthly; projection=rp; }
+    if (lastActIdx >= 0 && avgMonthly > 0) {
+      if (d.mi === lastActIdx) projection = d.cumActual;
+      // months since the last actual, each adding one month of the rolling average
+      else if (d.mi > lastActIdx) {
+        const stepsAhead = raw.filter(r => r.mi > lastActIdx && r.mi <= d.mi).length;
+        projection = lastCum + avgMonthly * stepsAhead;
+      }
     }
-    return {...d, projection};
+    return { ...d, projection };
   });
   const projEnd = data[data.length-1]?.projection;
   const basEnd  = data[data.length-1]?.cumBaseline;
@@ -1020,10 +1041,8 @@ function Dashboard({ monthIdx, fyStart, totalMonths, incomeStreams, savingsStrea
   onFYSettings }) {
   const { fmt } = useMoney();
 
-  const [selFY, setSelFY] = useState(() => getFYYear(monthIdx, fyStart));
+  const [selFY, setSelFY] = useSyncedState(getFYYear(monthIdx, fyStart));
   const [viewMode, setViewMode] = useState("month");
-
-  useEffect(() => setSelFY(getFYYear(monthIdx, fyStart)), [monthIdx, fyStart]);
 
   const fyMonths = getFYMonths(selFY, fyStart, totalMonths);
 
@@ -1132,9 +1151,8 @@ function IncomePage({ monthIdx, fyStart, totalMonths, streams, setStreams, basel
   const { fmt, fmtS } = useMoney();
   const [catModal, setCatModal] = useState(false);
   const [viewMode, setViewMode] = useState("month");
-  const [selFY, setSelFY] = useState(() => getFYYear(monthIdx, fyStart));
+  const [selFY, setSelFY] = useSyncedState(getFYYear(monthIdx, fyStart));
   const [expandedNote, setExpandedNote] = useState(null);
-  useEffect(()=>setSelFY(getFYYear(monthIdx,fyStart)),[monthIdx,fyStart]);
   const fyMonths = getFYMonths(selFY, fyStart, totalMonths);
 
   const getNote = (s, mi) => incomeNotes?.[s]?.[mi] || "";
@@ -1272,8 +1290,7 @@ function SavingsPage({ monthIdx, fyStart, totalMonths, streams, setStreams, base
   const { fmt, fmtAxis } = useMoney();
   const [catModal, setCatModal] = useState(false);
   const [viewMode, setViewMode] = useState("month");
-  const [selFY, setSelFY] = useState(() => getFYYear(monthIdx, fyStart));
-  useEffect(()=>setSelFY(getFYYear(monthIdx,fyStart)),[monthIdx,fyStart]);
+  const [selFY, setSelFY] = useSyncedState(getFYYear(monthIdx, fyStart));
   const fyMonths = getFYMonths(selFY, fyStart, totalMonths);
 
   return (
@@ -1329,8 +1346,7 @@ function ExpenditurePage({ monthIdx, fyStart, totalMonths, streams, setStreams, 
   const { fmt, fmtAxis } = useMoney();
   const [catModal, setCatModal] = useState(false);
   const [viewMode, setViewMode] = useState("month");
-  const [selFY, setSelFY] = useState(() => getFYYear(monthIdx, fyStart));
-  useEffect(()=>setSelFY(getFYYear(monthIdx,fyStart)),[monthIdx,fyStart]);
+  const [selFY, setSelFY] = useSyncedState(getFYYear(monthIdx, fyStart));
   const fyMonths = getFYMonths(selFY, fyStart, totalMonths);
 
   return (
@@ -1476,9 +1492,8 @@ function MoneyOwedPage({ rows, onUpdate }) {
 function BaselinePage({ monthIdx, fyStart, totalMonths, incomeStreams, savingsStreams, expStreams,
   baselineIncome, baselineSavings, baselineExp, onUpdateBaseline, onEditBaseline }) {
   const { fmt } = useMoney();
-  const [selFY, setSelFY] = useState(() => getFYYear(monthIdx, fyStart));
+  const [selFY, setSelFY] = useSyncedState(getFYYear(monthIdx, fyStart));
   const fys = useMemo(() => getAllFYs(fyStart, totalMonths), [fyStart, totalMonths]);
-  useEffect(()=>setSelFY(getFYYear(monthIdx,fyStart)),[monthIdx,fyStart]);
   const fyMonths = getFYMonths(selFY, fyStart, totalMonths);
 
   return (
