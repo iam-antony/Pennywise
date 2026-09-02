@@ -57,7 +57,10 @@ describe("isFormula", () => {
     expect(isFormula("-50")).toBe(false);
   });
 
-  // P2-05, still open: "1,200" is not a formula, so it falls through to
-  // parseFloat and silently becomes 1. Enable this once that is fixed.
-  it.todo("rejects thousands separators instead of truncating them to 1");
+  // A grouped amount is a value, not a formula — parseAmount handles it.
+  // See parse.test.js for the P2-05 coverage itself.
+  it("does not mistake grouped thousands for arithmetic", () => {
+    expect(isFormula("1,200")).toBe(false);
+    expect(isFormula("1,234,567")).toBe(false);
+  });
 });

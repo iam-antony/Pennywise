@@ -34,7 +34,28 @@ function makeFormatters(curr) {
     if (typeof v !== "number" || isNaN(v)) return "—";
     return (v >= 0 ? "+" : "−") + abs(v);
   };
-  return { fmt, fmtS, curr };
+  // Compact label for chart axes. Picks its unit from the magnitude actually
+  // being plotted: monthly figures are hundreds, so rounding everything to
+  // thousands produced axes reading "£0k £0k £1k £1k £1k".
+  const fmtAxis = v => {
+    if (typeof v !== "number" || isNaN(v)) return "";
+    const a = Math.abs(v);
+    const round1 = n => Number(n.toFixed(1)).toLocaleString(loc);
+    const body = a >= 1000000 ? `${round1(a / 1000000)}M`
+               : a >= 10000   ? `${round1(a / 1000)}k`
+               : Math.round(a).toLocaleString(loc);
+    return `${v < 0 ? "−" : ""}${curr.symbol}${body}`;
+  };
+
+  // The locale's own grouping and decimal marks, so an amount typed into an
+  // input can be read back the same way it is displayed.
+  const parts = new Intl.NumberFormat(loc).formatToParts(12345.6);
+  const separators = {
+    group: parts.find(p => p.type === "group")?.value ?? ",",
+    decimal: parts.find(p => p.type === "decimal")?.value ?? ".",
+  };
+
+  return { fmt, fmtS, fmtAxis, separators, curr };
 }
 
 export { currencyDecimals, makeFormatters };
