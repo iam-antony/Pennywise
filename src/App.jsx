@@ -97,6 +97,87 @@ const CURRENCIES = [
   {code:"DZD",name:"Algerian Dinar",symbol:"DA",locale:"ar-DZ"},
   {code:"TND",name:"Tunisian Dinar",symbol:"DT",locale:"ar-TN"},
   {code:"LYD",name:"Libyan Dinar",symbol:"LD",locale:"ar-LY"},
+  // ── Remaining ISO 4217 currencies, alphabetical by name ──────────────────
+  {code:"AFN",name:"Afghan Afghani",symbol:"؋",locale:"fa-AF"},
+  {code:"ALL",name:"Albanian Lek",symbol:"ALL",locale:"sq-AL"},
+  {code:"AOA",name:"Angolan Kwanza",symbol:"Kz",locale:"pt-AO"},
+  {code:"AWG",name:"Aruban Florin",symbol:"AWG",locale:"nl-AW"},
+  {code:"BSD",name:"Bahamian Dollar",symbol:"$",locale:"en-BS"},
+  {code:"BBD",name:"Barbadian Dollar",symbol:"$",locale:"en-BB"},
+  {code:"BYN",name:"Belarusian Ruble",symbol:"BYN",locale:"ru-BY"},
+  {code:"BZD",name:"Belize Dollar",symbol:"$",locale:"en-BZ"},
+  {code:"BMD",name:"Bermudan Dollar",symbol:"$",locale:"en-BM"},
+  {code:"BTN",name:"Bhutanese Ngultrum",symbol:"BTN",locale:"dz-BT"},
+  {code:"BAM",name:"Bosnia-Herzegovina Convertible Mark",symbol:"KM",locale:"bs-BA"},
+  {code:"BWP",name:"Botswanan Pula",symbol:"P",locale:"en-BW"},
+  {code:"BND",name:"Brunei Dollar",symbol:"$",locale:"ms-BN"},
+  {code:"BIF",name:"Burundian Franc",symbol:"BIF",locale:"rn-BI"},
+  {code:"CVE",name:"Cape Verdean Escudo",symbol:"CVE",locale:"pt-CV"},
+  {code:"KYD",name:"Cayman Islands Dollar",symbol:"$",locale:"en-KY"},
+  {code:"XPF",name:"CFP Franc",symbol:"CFPF",locale:"fr-PF"},
+  {code:"KMF",name:"Comorian Franc",symbol:"CF",locale:"ar-KM"},
+  {code:"CDF",name:"Congolese Franc",symbol:"CDF",locale:"fr-CD"},
+  {code:"CRC",name:"Costa Rican Colón",symbol:"₡",locale:"es-CR"},
+  {code:"CUP",name:"Cuban Peso",symbol:"$",locale:"es-CU"},
+  {code:"DJF",name:"Djiboutian Franc",symbol:"DJF",locale:"fr-DJ"},
+  {code:"DOP",name:"Dominican Peso",symbol:"$",locale:"es-DO"},
+  {code:"XCD",name:"East Caribbean Dollar",symbol:"$",locale:"en-AG"},
+  {code:"ERN",name:"Eritrean Nakfa",symbol:"ERN",locale:"ti-ER"},
+  {code:"FKP",name:"Falkland Islands Pound",symbol:"£",locale:"en-FK"},
+  {code:"FJD",name:"Fijian Dollar",symbol:"$",locale:"en-FJ"},
+  {code:"GMD",name:"Gambian Dalasi",symbol:"GMD",locale:"en-GM"},
+  {code:"GIP",name:"Gibraltar Pound",symbol:"£",locale:"en-GI"},
+  {code:"GTQ",name:"Guatemalan Quetzal",symbol:"Q",locale:"es-GT"},
+  {code:"GNF",name:"Guinean Franc",symbol:"FG",locale:"fr-GN"},
+  {code:"GYD",name:"Guyanaese Dollar",symbol:"$",locale:"en-GY"},
+  {code:"HTG",name:"Haitian Gourde",symbol:"HTG",locale:"ht-HT"},
+  {code:"HNL",name:"Honduran Lempira",symbol:"L",locale:"es-HN"},
+  {code:"IRR",name:"Iranian Rial",symbol:"IRR",locale:"fa-IR"},
+  {code:"IQD",name:"Iraqi Dinar",symbol:"IQD",locale:"ar-IQ"},
+  {code:"JMD",name:"Jamaican Dollar",symbol:"$",locale:"en-JM"},
+  {code:"KGS",name:"Kyrgyz Som",symbol:"⃀",locale:"ky-KG"},
+  {code:"LAK",name:"Laotian Kip",symbol:"₭",locale:"lo-LA"},
+  {code:"LBP",name:"Lebanese Pound",symbol:"L£",locale:"ar-LB"},
+  {code:"LSL",name:"Lesotho Loti",symbol:"LSL",locale:"st-LS"},
+  {code:"LRD",name:"Liberian Dollar",symbol:"$",locale:"en-LR"},
+  {code:"MOP",name:"Macanese Pataca",symbol:"MOP",locale:"zh-MO"},
+  {code:"MKD",name:"Macedonian Denar",symbol:"MKD",locale:"mk-MK"},
+  {code:"MGA",name:"Malagasy Ariary",symbol:"Ar",locale:"mg-MG"},
+  {code:"MWK",name:"Malawian Kwacha",symbol:"MWK",locale:"en-MW"},
+  {code:"MVR",name:"Maldivian Rufiyaa",symbol:"MVR",locale:"dv-MV"},
+  {code:"MRU",name:"Mauritanian Ouguiya",symbol:"MRU",locale:"ar-MR"},
+  {code:"MUR",name:"Mauritian Rupee",symbol:"Rs",locale:"fr-MU"},
+  {code:"MDL",name:"Moldovan Leu",symbol:"MDL",locale:"ro-MD"},
+  {code:"MNT",name:"Mongolian Tugrik",symbol:"₮",locale:"mn-MN"},
+  {code:"MZN",name:"Mozambican Metical",symbol:"MZN",locale:"pt-MZ"},
+  {code:"NAD",name:"Namibian Dollar",symbol:"$",locale:"af-NA"},
+  {code:"ANG",name:"Netherlands Antillean Guilder",symbol:"ANG",locale:"nl-CW"},
+  {code:"NIO",name:"Nicaraguan Córdoba",symbol:"C$",locale:"es-NI"},
+  {code:"KPW",name:"North Korean Won",symbol:"₩",locale:"ko-KP"},
+  {code:"PAB",name:"Panamanian Balboa",symbol:"PAB",locale:"es-PA"},
+  {code:"PGK",name:"Papua New Guinean Kina",symbol:"PGK",locale:"tpi-PG"},
+  {code:"RWF",name:"Rwandan Franc",symbol:"RF",locale:"rw-RW"},
+  {code:"WST",name:"Samoan Tala",symbol:"WST",locale:"sm-WS"},
+  {code:"STN",name:"São Tomé & Príncipe Dobra",symbol:"Db",locale:"pt-ST"},
+  {code:"SCR",name:"Seychellois Rupee",symbol:"SCR",locale:"fr-SC"},
+  {code:"SLE",name:"Sierra Leonean Leone",symbol:"Le",locale:"en-SL"},
+  {code:"SBD",name:"Solomon Islands Dollar",symbol:"$",locale:"en-SB"},
+  {code:"SOS",name:"Somali Shilling",symbol:"SOS",locale:"so-SO"},
+  {code:"SSP",name:"South Sudanese Pound",symbol:"£",locale:"en-SS"},
+  {code:"SHP",name:"St. Helena Pound",symbol:"£",locale:"en-SH"},
+  {code:"SDG",name:"Sudanese Pound",symbol:"SDG",locale:"ar-SD"},
+  {code:"SRD",name:"Surinamese Dollar",symbol:"$",locale:"nl-SR"},
+  {code:"SZL",name:"Swazi Lilangeni",symbol:"SZL",locale:"en-SZ"},
+  {code:"SYP",name:"Syrian Pound",symbol:"£",locale:"ar-SY"},
+  {code:"TJS",name:"Tajikistani Somoni",symbol:"TJS",locale:"tg-TJ"},
+  {code:"TOP",name:"Tongan Paʻanga",symbol:"T$",locale:"to-TO"},
+  {code:"TTD",name:"Trinidad & Tobago Dollar",symbol:"$",locale:"en-TT"},
+  {code:"TMT",name:"Turkmenistani Manat",symbol:"TMT",locale:"tk-TM"},
+  {code:"VUV",name:"Vanuatu Vatu",symbol:"VUV",locale:"bi-VU"},
+  {code:"VES",name:"Venezuelan Bolívar",symbol:"VES",locale:"es-VE"},
+  {code:"YER",name:"Yemeni Rial",symbol:"YER",locale:"ar-YE"},
+  {code:"ZMW",name:"Zambian Kwacha",symbol:"ZK",locale:"en-ZM"},
+  {code:"ZWG",name:"Zimbabwean Gold",symbol:"ZiG",locale:"en-ZW"},
 ];
 // Derive flag emoji from locale country code (e.g. "en-GB" → 🇬🇧)
 const flagEmoji = locale => {
@@ -228,8 +309,25 @@ const CC = ["#d4a853","#7eb3f5","#52c47a","#f5a623","#a87fd4","#5cc8d4","#f06464
 // Formatters are built from the selected currency and passed down through
 // context. Components read them with useMoney() rather than reaching for a
 // module-level variable, so nothing has to be mutated during render.
+// Decimal places a currency actually uses — 0 for JPY, 3 for KWD, 2 for most.
+// Asked of Intl once per code and cached; unknown codes fall back to 2.
+const DECIMALS = new Map();
+function currencyDecimals(code) {
+  if (!DECIMALS.has(code)) {
+    let d = 2;
+    try { d = new Intl.NumberFormat("en", { style:"currency", currency:code }).resolvedOptions().maximumFractionDigits; } catch {}
+    DECIMALS.set(code, d);
+  }
+  return DECIMALS.get(code);
+}
+
 function makeFormatters(curr) {
-  const abs = v => `${curr.symbol}${Math.abs(v).toLocaleString(curr.locale,{minimumFractionDigits:0,maximumFractionDigits:2})}`;
+  const dp = currencyDecimals(curr.code);
+  // Keep the currency's own grouping and decimal marks, but force Latin digits.
+  // Locales like ar-KW and bn-BD would otherwise render ٩٦٠ / ৯৬০ beside the
+  // Latin numerals used everywhere else in the interface.
+  const loc = `${curr.locale}-u-nu-latn`;
+  const abs = v => `${curr.symbol}${Math.abs(v).toLocaleString(loc,{minimumFractionDigits:0,maximumFractionDigits:dp})}`;
   // Plain amount — keeps the sign, so an overspend reads as a loss.
   const fmt = v => {
     if (typeof v !== "number" || isNaN(v)) return "—";
