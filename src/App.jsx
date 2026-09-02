@@ -513,7 +513,7 @@ function BaselineEditorModal({ section, streams, data, fyStart, totalMonths, onS
 }
 
 // ─── GAUGE DIAL ───────────────────────────────────────────────────────────────
-function GaugeDial({ label, actual, target, color, sub, icon }) {
+function GaugeDial({ label, actual, target, annual, color, sub, icon }) {
   const { fmt } = useMoney();
   const raw = target > 0 ? actual/target : 0;
   const ARC = 220, START = 160;
@@ -544,7 +544,9 @@ function GaugeDial({ label, actual, target, color, sub, icon }) {
         <text x={110} y={79} textAnchor="middle" fontSize={18}>{icon}</text>
         <text x={110} y={104} textAnchor="middle" fill={sc} fontSize={23} fontFamily="Playfair Display" fontWeight={700}>{Math.round(raw*100)}%</text>
         <text x={110} y={122} textAnchor="middle" fill={T.text} fontSize={13} fontFamily="DM Sans" fontWeight={600}>{fmt(actual)}</text>
-        <text x={110} y={136} textAnchor="middle" fill={T.sub} fontSize={10} fontFamily="DM Sans">of {fmt(target)} target</text>
+        <text x={110} y={136} textAnchor="middle" fill={T.sub} fontSize={10} fontFamily="DM Sans">
+          {target > 0 ? `of ${fmt(target)} due by now` : annual > 0 ? `${fmt(annual)} planned for the year` : "no target set"}
+        </text>
       </svg>
       <div style={{ fontFamily:"'Playfair Display'", fontSize:14, fontWeight:600, marginTop:-4 }}>{label}</div>
       {sub && <div style={{ fontSize:10, color:T.sub, marginTop:2, textAlign:"center", maxWidth:200 }}>{sub}</div>}
@@ -1104,15 +1106,29 @@ function Dashboard({ monthIdx, fyStart, totalMonths, incomeStreams, savingsStrea
   const fyBasExp = fyMonths.reduce((a,mi)=>a+allMonthly(expStreams,baselineExp,mi),0);
   const fyFcExp  = fyMonths.reduce((a,mi)=>a+allMonthly(expStreams,expForecast,mi),0);
 
-  // YTD Gauge data
+  // ─── Year-to-date gauges ───────────────────────────────────────────────────
   const investStreams = savingsStreams.filter(s => isInvestment(s, savingsTypes));
   const pureStreams   = savingsStreams.filter(s => !isInvestment(s, savingsTypes));
-  const ytd = fyMonths.filter(mi => mi <= monthIdx);
-  const savYTD  = ytd.reduce((a,mi)=>a+allStreamsWeekly(pureStreams,savingsWeekly,mi),0);
-  const invYTD  = ytd.reduce((a,mi)=>a+allStreamsWeekly(investStreams,savingsWeekly,mi),0);
-  const savTgt  = fyMonths.reduce((a,mi)=>a+allMonthly(pureStreams,baselineSavings,mi),0);
-  const invTgt  = fyMonths.reduce((a,mi)=>a+allMonthly(investStreams,baselineSavings,mi),0);
-  const frac    = fyMonths.length > 0 ? ytd.length / fyMonths.length : 0;
+
+  // Which months of the selected financial year have actually happened.
+  // "index <= monthIdx" alone was wrong whenever the FY tab and the month
+  // cursor disagreed: a future year came out as 0% of a full target, and a
+  // past year counted only the months below today's index.
+  const currentFY = getFYYear(monthIdx, fyStart);
+  const fyState = selFY === currentFY ? "current" : selFY < currentFY ? "past" : "future";
+  const ytd = fyState === "current" ? fyMonths.filter(mi => mi <= monthIdx)
+            : fyState === "past"    ? fyMonths
+            : [];
+
+  const savYTD = ytd.reduce((a,mi)=>a+allStreamsWeekly(pureStreams,savingsWeekly,mi),0);
+  const invYTD = ytd.reduce((a,mi)=>a+allStreamsWeekly(investStreams,savingsWeekly,mi),0);
+  // Annual targets, and the share of them due by now. Measuring against the
+  // full year all year meant someone exactly on plan still read as behind.
+  const savTgt = fyMonths.reduce((a,mi)=>a+allMonthly(pureStreams,baselineSavings,mi),0);
+  const invTgt = fyMonths.reduce((a,mi)=>a+allMonthly(investStreams,baselineSavings,mi),0);
+  const savDue = ytd.reduce((a,mi)=>a+allMonthly(pureStreams,baselineSavings,mi),0);
+  const invDue = ytd.reduce((a,mi)=>a+allMonthly(investStreams,baselineSavings,mi),0);
+  const frac   = fyMonths.length > 0 ? ytd.length / fyMonths.length : 0;
   const netRemaining = actInc - actSav - actExp;
 
   return (
@@ -1141,23 +1157,31 @@ function Dashboard({ monthIdx, fyStart, totalMonths, incomeStreams, savingsStrea
 
       {/* Gauge Dials */}
       <div className="card" style={{ padding:20, marginBottom:16 }}>
-        <div style={{ fontFamily:"'Playfair Display'", fontSize:15, fontWeight:600, marginBottom:4 }}>Year-to-Date Progress</div>
-        <div style={{ fontSize:11, color:T.sub, marginBottom:18 }}>{Math.round(frac*100)}% through {fyLabel(selFY, fyStart)} · Measured against full annual baseline target</div>
+        <div style={{ fontFamily:"'Playfair Display'", fontSize:15, fontWeight:600, marginBottom:4 }}>
+          {fyState === "current" ? "Year-to-Date Progress" : fyState === "past" ? "Full Year Result" : "Planned Year"}
+        </div>
+        <div style={{ fontSize:11, color:T.sub, marginBottom:18 }}>
+          {fyState === "current" && <>{Math.round(frac*100)}% through {fyLabel(selFY, fyStart)} · 100% means on plan for this point in the year</>}
+          {fyState === "past"    && <>{fyLabel(selFY, fyStart)} is complete · measured against the full year's baseline</>}
+          {fyState === "future"  && <>{fyLabel(selFY, fyStart)} has not started · showing the plan, with nothing recorded yet</>}
+        </div>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:0 }}>
           <div style={{ display:"flex", flexDirection:"column", alignItems:"center", borderRight:`1px solid ${T.border}`, paddingRight:16 }}>
-            <GaugeDial label="Savings" icon="🏦" actual={savYTD} target={savTgt} color={T.success} sub={pureStreams.join(" · ")||"No savings pots — mark one in Categories"}/>
+            <GaugeDial label="Savings" icon="🏦" actual={savYTD} target={savDue} annual={savTgt} color={T.success}
+              sub={pureStreams.join(" · ") || "No savings pots — mark one in Categories"}/>
             <div style={{ display:"flex", gap:18, marginTop:6, fontSize:12 }}>
-              <div style={{ textAlign:"center" }}><div style={{ color:T.sub,fontSize:10,textTransform:"uppercase",letterSpacing:".06em" }}>YTD Actual</div><div style={{ fontWeight:700,color:T.success }}>{fmt(savYTD)}</div></div>
+              <div style={{ textAlign:"center" }}><div style={{ color:T.sub,fontSize:10,textTransform:"uppercase",letterSpacing:".06em" }}>{fyState === "future" ? "Saved" : "YTD Actual"}</div><div style={{ fontWeight:700,color:T.success }}>{fmt(savYTD)}</div></div>
+              <div style={{ textAlign:"center" }}><div style={{ color:T.sub,fontSize:10,textTransform:"uppercase",letterSpacing:".06em" }}>Expected by now</div><div style={{ fontWeight:700 }}>{fmt(savDue)}</div></div>
               <div style={{ textAlign:"center" }}><div style={{ color:T.sub,fontSize:10,textTransform:"uppercase",letterSpacing:".06em" }}>Annual Target</div><div style={{ fontWeight:700 }}>{fmt(savTgt)}</div></div>
-              <div style={{ textAlign:"center" }}><div style={{ color:T.sub,fontSize:10,textTransform:"uppercase",letterSpacing:".06em" }}>Remaining</div><div style={{ fontWeight:700,color:savTgt-savYTD>0?T.warning:T.success }}>{fmt(Math.max(0,savTgt-savYTD))}</div></div>
             </div>
           </div>
           <div style={{ display:"flex", flexDirection:"column", alignItems:"center", paddingLeft:16 }}>
-            <GaugeDial label="Investments" icon="📈" actual={invYTD} target={invTgt} color={T.blue} sub={investStreams.join(" · ")||"No investments — mark one in Categories"}/>
+            <GaugeDial label="Investments" icon="📈" actual={invYTD} target={invDue} annual={invTgt} color={T.blue}
+              sub={investStreams.join(" · ") || "No investments — mark one in Categories"}/>
             <div style={{ display:"flex", gap:18, marginTop:6, fontSize:12 }}>
-              <div style={{ textAlign:"center" }}><div style={{ color:T.sub,fontSize:10,textTransform:"uppercase",letterSpacing:".06em" }}>YTD Actual</div><div style={{ fontWeight:700,color:T.blue }}>{fmt(invYTD)}</div></div>
+              <div style={{ textAlign:"center" }}><div style={{ color:T.sub,fontSize:10,textTransform:"uppercase",letterSpacing:".06em" }}>{fyState === "future" ? "Invested" : "YTD Actual"}</div><div style={{ fontWeight:700,color:T.blue }}>{fmt(invYTD)}</div></div>
+              <div style={{ textAlign:"center" }}><div style={{ color:T.sub,fontSize:10,textTransform:"uppercase",letterSpacing:".06em" }}>Expected by now</div><div style={{ fontWeight:700 }}>{fmt(invDue)}</div></div>
               <div style={{ textAlign:"center" }}><div style={{ color:T.sub,fontSize:10,textTransform:"uppercase",letterSpacing:".06em" }}>Annual Target</div><div style={{ fontWeight:700 }}>{fmt(invTgt)}</div></div>
-              <div style={{ textAlign:"center" }}><div style={{ color:T.sub,fontSize:10,textTransform:"uppercase",letterSpacing:".06em" }}>Remaining</div><div style={{ fontWeight:700,color:invTgt-invYTD>0?T.warning:T.success }}>{fmt(Math.max(0,invTgt-invYTD))}</div></div>
             </div>
           </div>
         </div>
