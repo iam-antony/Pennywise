@@ -4,7 +4,7 @@ import { ComposedChart, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianG
 import { MAX_MONTHS, MONTHS, MONTH_NAMES, WEEKS, getFYYear, getAllFYs, fyLabel, getFYMonths } from "./lib/calendar.js";
 import { CURRENCIES, flagEmoji } from "./lib/currencies.js";
 import { makeFormatters } from "./lib/money.js";
-import { DEFAULT_INCOME_STREAMS, DEFAULT_SAVINGS_STREAMS, DEFAULT_EXP_STREAMS, makeBaselineIncome, makeBaselineSavings, makeBaselineExp, NET_WORTH_ASSETS, DEFAULT_NET_WORTH, blankWeekly, weeklyTotal, allStreamsWeekly, monthlyVal, allMonthly, applyStreams, applyNotes } from "./lib/data.js";
+import { isInvestment, inferSavingsKind, withSavingsKinds, DEFAULT_INCOME_STREAMS, DEFAULT_SAVINGS_STREAMS, DEFAULT_EXP_STREAMS, makeBaselineIncome, makeBaselineSavings, makeBaselineExp, NET_WORTH_ASSETS, DEFAULT_NET_WORTH, blankWeekly, weeklyTotal, allStreamsWeekly, monthlyVal, allMonthly, applyStreams, applyNotes } from "./lib/data.js";
 import { load, save } from "./lib/storage.js";
 import { isFormula, parseEntry } from "./lib/expr.js";
 import { T, CC, STYLES } from "./theme.js";
@@ -308,14 +308,18 @@ function CurrencyModal({ current, onSave, onClose }) {
     </div>
   );
 }
-function CategoryModal({ title, streams, onSave, onClose }) {
+function CategoryModal({ title, streams, kinds, onSave, onClose }) {
   const [list, setList] = useState([...streams]);
   // Tracks each current label back to the name its data is stored under, so the
   // save handler can move history across a rename.
   const [origin, setOrigin] = useState(() => Object.fromEntries(streams.map(s => [s, s])));
+  const [draftKinds, setDraftKinds] = useState(() => ({ ...(kinds || {}) }));
   const [newName, setNewName] = useState("");
   const [editing, setEditing] = useState({});
   const removed = streams.filter(s => !Object.values(origin).includes(s));
+  const showKinds = !!kinds;
+  const kindOf = s => draftKinds[s] || inferSavingsKind(s);
+  const toggleKind = s => setDraftKinds(k => ({ ...k, [s]: kindOf(s) === "investment" ? "pot" : "investment" }));
   const add = () => { const n = newName.trim(); if (!n || list.includes(n)) return; setList([...list, n]); setNewName(""); };
   const remove = s => {
     setList(list.filter(x => x !== s));
@@ -326,6 +330,7 @@ function CategoryModal({ title, streams, onSave, onClose }) {
     if (!n || (list.includes(n) && n !== old)) return;
     setList(list.map(x => x === old ? n : x));
     setOrigin(o => { const c = {...o}; if (old in c) { c[n] = c[old]; delete c[old]; } return c; });
+    setDraftKinds(k => { const c = {...k}; if (old in c) { c[n] = c[old]; delete c[old]; } else { c[n] = kindOf(old); } return c; });
     setEditing(e => { const c={...e}; delete c[old]; return c; });
   };
   return (
@@ -343,6 +348,16 @@ function CategoryModal({ title, streams, onSave, onClose }) {
                   <button className="btn btn-ghost btn-sm" onClick={() => setEditing(p=>{const c={...p};delete c[s];return c;})}>✕</button></>
               ) : (
                 <><span style={{ flex:1, fontSize:13 }}>{s}</span>
+                  {showKinds && (
+                    <button onClick={() => toggleKind(s)}
+                      title="Counts towards the Investments gauge instead of Savings"
+                      style={{ fontSize:11, padding:"3px 9px", borderRadius:20, cursor:"pointer", fontFamily:"'DM Sans'",
+                        background: kindOf(s) === "investment" ? "rgba(126,179,245,.12)" : "rgba(82,196,122,.1)",
+                        border:`1px solid ${kindOf(s) === "investment" ? T.blue : T.success}`,
+                        color: kindOf(s) === "investment" ? T.blue : T.success }}>
+                      {kindOf(s) === "investment" ? "📈 Investment" : "🏦 Pot"}
+                    </button>
+                  )}
                   <button className="btn-icon" onClick={() => setEditing(p=>({...p,[s]:s}))}>✎</button>
                   <button className="btn-icon" style={{ color:T.danger }} onClick={() => remove(s)}>✕</button></>
               )}
@@ -363,7 +378,7 @@ function CategoryModal({ title, streams, onSave, onClose }) {
         )}
         <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
           <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary" onClick={() => onSave(list, origin)}>Apply</button>
+          <button className="btn btn-primary" onClick={() => onSave(list, origin, showKinds ? draftKinds : undefined)}>Apply</button>
         </div>
       </div>
     </div>
@@ -850,7 +865,7 @@ function WeeklyEntryTable({ streams, weeklyData, baselineData, forecastData, mon
 }
 
 // ─── SANKEY DIAGRAM ───────────────────────────────────────────────────────────
-function SankeyDiagram({ incomeStreams, savingsStreams, expStreams, incomeActual, savingsWeekly, expWeekly, monthIdx, fyMonths, viewMode }) {
+function SankeyDiagram({ incomeStreams, savingsStreams, expStreams, savingsTypes, incomeActual, savingsWeekly, expWeekly, monthIdx, fyMonths, viewMode }) {
   const { fmt } = useMoney();
   const [hovered, setHovered] = useState(null);
 
@@ -870,7 +885,7 @@ function SankeyDiagram({ incomeStreams, savingsStreams, expStreams, incomeActual
 
   const EXP_COLS = ["#f06464","#f5a623","#e07070","#c4896a","#f09d6a","#d4a0a0","#f0b864","#c4706a","#e89464","#d46464","#f5c842","#e8c070"];
   const dstRaw = [
-    ...savingsStreams.map(s => ({ name:s, value:getSav(s), color: s.toLowerCase().includes("invest") ? T.blue : T.success })),
+    ...savingsStreams.map(s => ({ name:s, value:getSav(s), color: isInvestment(s, savingsTypes) ? T.blue : T.success })),
     ...expStreams.map((s,i) => ({ name:s, value:getExp(s), color:EXP_COLS[i % EXP_COLS.length] })),
   ];
   const allocated = dstRaw.reduce((a,n) => a + n.value, 0);
@@ -1038,7 +1053,7 @@ function SankeyDiagram({ incomeStreams, savingsStreams, expStreams, incomeActual
 
 function Dashboard({ monthIdx, fyStart, totalMonths, incomeStreams, savingsStreams, expStreams,
   baselineIncome, baselineSavings, baselineExp, incomeActual, savingsForecast, savingsWeekly, expForecast, expWeekly,
-  onFYSettings }) {
+  onFYSettings, savingsTypes }) {
   const { fmt } = useMoney();
 
   const [selFY, setSelFY] = useSyncedState(getFYYear(monthIdx, fyStart));
@@ -1065,8 +1080,8 @@ function Dashboard({ monthIdx, fyStart, totalMonths, incomeStreams, savingsStrea
   const fyFcExp  = fyMonths.reduce((a,mi)=>a+allMonthly(expStreams,expForecast,mi),0);
 
   // YTD Gauge data
-  const investStreams = savingsStreams.filter(s => s.toLowerCase().includes("investment"));
-  const pureStreams   = savingsStreams.filter(s => !s.toLowerCase().includes("investment"));
+  const investStreams = savingsStreams.filter(s => isInvestment(s, savingsTypes));
+  const pureStreams   = savingsStreams.filter(s => !isInvestment(s, savingsTypes));
   const ytd = fyMonths.filter(mi => mi <= monthIdx);
   const savYTD  = ytd.reduce((a,mi)=>a+allStreamsWeekly(pureStreams,savingsWeekly,mi),0);
   const invYTD  = ytd.reduce((a,mi)=>a+allStreamsWeekly(investStreams,savingsWeekly,mi),0);
@@ -1105,7 +1120,7 @@ function Dashboard({ monthIdx, fyStart, totalMonths, incomeStreams, savingsStrea
         <div style={{ fontSize:11, color:T.sub, marginBottom:18 }}>{Math.round(frac*100)}% through {fyLabel(selFY, fyStart)} · Measured against full annual baseline target</div>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:0 }}>
           <div style={{ display:"flex", flexDirection:"column", alignItems:"center", borderRight:`1px solid ${T.border}`, paddingRight:16 }}>
-            <GaugeDial label="Savings" icon="🏦" actual={savYTD} target={savTgt} color={T.success} sub={pureStreams.join(" · ")||"No pure savings streams"}/>
+            <GaugeDial label="Savings" icon="🏦" actual={savYTD} target={savTgt} color={T.success} sub={pureStreams.join(" · ")||"No savings pots — mark one in Categories"}/>
             <div style={{ display:"flex", gap:18, marginTop:6, fontSize:12 }}>
               <div style={{ textAlign:"center" }}><div style={{ color:T.sub,fontSize:10,textTransform:"uppercase",letterSpacing:".06em" }}>YTD Actual</div><div style={{ fontWeight:700,color:T.success }}>{fmt(savYTD)}</div></div>
               <div style={{ textAlign:"center" }}><div style={{ color:T.sub,fontSize:10,textTransform:"uppercase",letterSpacing:".06em" }}>Annual Target</div><div style={{ fontWeight:700 }}>{fmt(savTgt)}</div></div>
@@ -1113,7 +1128,7 @@ function Dashboard({ monthIdx, fyStart, totalMonths, incomeStreams, savingsStrea
             </div>
           </div>
           <div style={{ display:"flex", flexDirection:"column", alignItems:"center", paddingLeft:16 }}>
-            <GaugeDial label="Investments" icon="📈" actual={invYTD} target={invTgt} color={T.blue} sub={investStreams.join(" · ")||"Add 'Investment' to stream names"}/>
+            <GaugeDial label="Investments" icon="📈" actual={invYTD} target={invTgt} color={T.blue} sub={investStreams.join(" · ")||"No investments — mark one in Categories"}/>
             <div style={{ display:"flex", gap:18, marginTop:6, fontSize:12 }}>
               <div style={{ textAlign:"center" }}><div style={{ color:T.sub,fontSize:10,textTransform:"uppercase",letterSpacing:".06em" }}>YTD Actual</div><div style={{ fontWeight:700,color:T.blue }}>{fmt(invYTD)}</div></div>
               <div style={{ textAlign:"center" }}><div style={{ color:T.sub,fontSize:10,textTransform:"uppercase",letterSpacing:".06em" }}>Annual Target</div><div style={{ fontWeight:700 }}>{fmt(invTgt)}</div></div>
@@ -1139,7 +1154,7 @@ function Dashboard({ monthIdx, fyStart, totalMonths, incomeStreams, savingsStrea
         </div>
         <div style={{ fontSize:12, color:T.sub, marginBottom:16 }}>Where your income is being distributed across savings, investments and expenditure categories.</div>
         <SankeyDiagram
-          incomeStreams={incomeStreams} savingsStreams={savingsStreams} expStreams={expStreams}
+          incomeStreams={incomeStreams} savingsStreams={savingsStreams} expStreams={expStreams} savingsTypes={savingsTypes}
           incomeActual={incomeActual} savingsWeekly={savingsWeekly} expWeekly={expWeekly}
           monthIdx={monthIdx} fyMonths={fyMonths} viewMode={viewMode}/>
       </div>
@@ -1179,12 +1194,12 @@ function IncomePage({ monthIdx, fyStart, totalMonths, streams, setStreams, basel
               forecastData={baselineData} incomeActual={actualData} type="income"/>
           </div>
           {/* Extra Income notes in FY view */}
-          {streams.filter(s => s.toLowerCase().includes("extra") || s.toLowerCase().includes("other")).length > 0 && (
+          {streams.some(s => fyMonths.some(mi => getNote(s, mi))) && (
             <div className="card" style={{ padding:20 }}>
-              <div className="sl" style={{ marginBottom:14 }}>Extra Income — Monthly Notes</div>
+              <div className="sl" style={{ marginBottom:14 }}>Income Notes &amp; Tags</div>
               <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-                {streams.filter(s => s.toLowerCase().includes("extra") || s.toLowerCase().includes("other")).map(s =>
-                  fyMonths.filter(mi => monthlyVal(actualData,s,mi) > 0).map(mi => {
+                {streams.map(s =>
+                  fyMonths.filter(mi => getNote(s, mi)).map(mi => {
                     const note = getNote(s, mi);
                     return (
                       <div key={`${s}-${mi}`} style={{ display:"flex", alignItems:"baseline", gap:10, padding:"8px 12px", background:T.inputBg, borderRadius:8 }}>
@@ -1286,7 +1301,7 @@ function IncomePage({ monthIdx, fyStart, totalMonths, streams, setStreams, basel
 }
 
 function SavingsPage({ monthIdx, fyStart, totalMonths, streams, setStreams, baselineData, forecastData, weeklyData,
-  onUpdateWeekly, onUpdateForecast, onEditBaseline, onFYSettings }) {
+  onUpdateWeekly, onUpdateForecast, onEditBaseline, onFYSettings, savingsTypes }) {
   const { fmt, fmtAxis } = useMoney();
   const [catModal, setCatModal] = useState(false);
   const [viewMode, setViewMode] = useState("month");
@@ -1302,7 +1317,7 @@ function SavingsPage({ monthIdx, fyStart, totalMonths, streams, setStreams, base
           <button className="btn btn-ghost btn-sm" onClick={()=>setCatModal(true)}>⊞ Categories</button>
         </div>
       </div>
-      {catModal && <CategoryModal title="Savings" streams={streams} onSave={(s,o)=>{setStreams(s,o);setCatModal(false);}} onClose={()=>setCatModal(false)}/>}
+      {catModal && <CategoryModal title="Savings" streams={streams} kinds={savingsTypes} onSave={(s,o,k)=>{setStreams(s,o,k);setCatModal(false);}} onClose={()=>setCatModal(false)}/>}
       <FYToolbar fyStart={fyStart} monthIdx={monthIdx} totalMonths={totalMonths} selectedFY={selFY} onSelectFY={setSelFY}
         viewMode={viewMode} onViewMode={setViewMode} onSettings={onFYSettings}/>
 
@@ -1945,6 +1960,8 @@ export default function App() {
   // Categories
   const [incomeStreams, setIncomeStreams] = useState(DEFAULT_INCOME_STREAMS);
   const [savingsStreams, setSavingsStreams] = useState(DEFAULT_SAVINGS_STREAMS);
+  // { [category]: "pot" | "investment" } — replaces guessing from the name
+  const [savingsTypes, setSavingsTypes] = useState(() => withSavingsKinds(DEFAULT_SAVINGS_STREAMS));
   const [expStreams, setExpStreams] = useState(DEFAULT_EXP_STREAMS);
 
   // Baselines
@@ -1973,9 +1990,9 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      const keys = ["fy","tm","curr","cats","bInc","bSav","bExp","incAct","savFc","savWk","expFc","expWk","nw","mo","expN","incN","dver","name","goal","done"];
+      const keys = ["fy","tm","curr","cats","bInc","bSav","bExp","incAct","savFc","savWk","expFc","expWk","nw","mo","expN","incN","dver","name","goal","done","savTypes"];
       const res = await Promise.all(keys.map(k => load(`bt3-${k}`, null)));
-      const [fy,tm,curr,cats,bInc,bSav,bExp,incAct,savFc,savWk,expFc,expWk,nw,mo,expN,incN,dver,uname,goal,done] = res;
+      const [fy,tm,curr,cats,bInc,bSav,bExp,incAct,savFc,savWk,expFc,expWk,nw,mo,expN,incN,dver,uname,goal,done,savTypes] = res;
 
       // Onboarding flag
       if (done) { setOnboarded(true); }
@@ -1990,6 +2007,9 @@ export default function App() {
       if (tm !== null) setTotalMonths(tm);
       if (curr) { const found = CURRENCIES.find(c => c.code === curr); if (found) setCurrency(found); }
       if (cats) { if(cats.income)setIncomeStreams(cats.income); if(cats.savings)setSavingsStreams(cats.savings); if(cats.exp)setExpStreams(cats.exp); }
+      // Existing profiles have no stored kinds; derive them once from the old
+      // name test so behaviour is unchanged, then keep them explicit.
+      setSavingsTypes(withSavingsKinds(cats?.savings || DEFAULT_SAVINGS_STREAMS, savTypes || {}));
       if (!freshSeed && bInc) setBaselineIncome(bInc);
       if (!freshSeed && bSav) setBaselineSavings(bSav);
       if (!freshSeed && bExp) setBaselineExp(bExp);
@@ -2076,6 +2096,7 @@ export default function App() {
       save("bt3-goal", savingsGoal),
       save("bt3-done", true),
       save("bt3-cats", { income:incomeStreams, savings:savingsStreams, exp:expStreams }),
+      save("bt3-savTypes", savingsTypes),
       save("bt3-bInc", baselineIncome), save("bt3-bSav", baselineSavings), save("bt3-bExp", baselineExp),
       save("bt3-incAct", incomeActual), save("bt3-savFc", savingsForecast), save("bt3-savWk", savingsWeekly),
       save("bt3-expFc", expForecast), save("bt3-expWk", expWeekly),
@@ -2083,7 +2104,7 @@ export default function App() {
       save("bt3-expN", expNotes), save("bt3-incN", incomeNotes),
     ]);
     setSaved(true); setTimeout(()=>setSaved(false), 2000);
-  }, [fyStart,totalMonths,currency,userName,savingsGoal,incomeStreams,savingsStreams,expStreams,baselineIncome,baselineSavings,baselineExp,
+  }, [fyStart,totalMonths,currency,userName,savingsGoal,savingsTypes,incomeStreams,savingsStreams,expStreams,baselineIncome,baselineSavings,baselineExp,
       incomeActual,savingsForecast,savingsWeekly,expForecast,expWeekly,netWorth,moneyOwed,expNotes,incomeNotes]);
 
   // Category handlers — ensure data structures when streams change
@@ -2093,11 +2114,20 @@ export default function App() {
     setBaselineIncome(p => applyStreams(p, ns, origin, "array"));
     setIncomeNotes(p => applyNotes(p, ns, origin));
   }, []);
-  const handleSetSav = useCallback((ns, origin) => {
+  const handleSetSav = useCallback((ns, origin, kinds) => {
     setSavingsStreams(ns);
     setSavingsForecast(p => applyStreams(p, ns, origin, "array"));
     setSavingsWeekly(p => applyStreams(p, ns, origin, "weekly"));
     setBaselineSavings(p => applyStreams(p, ns, origin, "array"));
+    // Carry each kind across a rename, then fill in anything new.
+    setSavingsTypes(prev => {
+      const moved = { ...prev };
+      ns.forEach(s => {
+        const from = origin?.[s];
+        if (from && from !== s && from in moved) { moved[s] = moved[from]; delete moved[from]; }
+      });
+      return withSavingsKinds(ns, { ...moved, ...(kinds || {}) });
+    });
   }, []);
   const handleSetExp = useCallback((ns, origin) => {
     setExpStreams(ns);
@@ -2240,7 +2270,7 @@ export default function App() {
           {page==="dashboard"&&<Dashboard monthIdx={monthIdx} fyStart={fyStart} totalMonths={totalMonths} incomeStreams={incomeStreams} savingsStreams={savingsStreams} expStreams={expStreams}
             baselineIncome={baselineIncome} baselineSavings={baselineSavings} baselineExp={baselineExp}
             incomeActual={incomeActual} savingsForecast={savingsForecast} savingsWeekly={savingsWeekly}
-            expForecast={expForecast} expWeekly={expWeekly} onFYSettings={()=>setFYSettingsOpen(true)}/>}
+            expForecast={expForecast} expWeekly={expWeekly} onFYSettings={()=>setFYSettingsOpen(true)} savingsTypes={savingsTypes}/>}
 
           {page==="income"&&<IncomePage monthIdx={monthIdx} fyStart={fyStart} totalMonths={totalMonths} streams={incomeStreams} setStreams={handleSetInc}
             baselineData={baselineIncome} actualData={incomeActual} onUpdate={updIncAct}
@@ -2249,7 +2279,7 @@ export default function App() {
 
           {page==="savings"&&<SavingsPage monthIdx={monthIdx} fyStart={fyStart} totalMonths={totalMonths} streams={savingsStreams} setStreams={handleSetSav}
             baselineData={baselineSavings} forecastData={savingsForecast} weeklyData={savingsWeekly}
-            onUpdateWeekly={updSavWk} onUpdateForecast={updSavFc} onEditBaseline={openBaselineEditor}
+            onUpdateWeekly={updSavWk} onUpdateForecast={updSavFc} onEditBaseline={openBaselineEditor} savingsTypes={savingsTypes}
             onFYSettings={()=>setFYSettingsOpen(true)}/>}
 
           {page==="expenditure"&&<ExpenditurePage monthIdx={monthIdx} fyStart={fyStart} totalMonths={totalMonths} streams={expStreams} setStreams={handleSetExp}

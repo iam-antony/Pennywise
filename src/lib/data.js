@@ -27,6 +27,26 @@ const makeBaselineExp = () => ({
 const NET_WORTH_ASSETS = ["Property","Equities","Bonds","Commodities","Cash (Savings)","Cash (Emergency Fund)","Cash (Pension)"];
 const DEFAULT_NET_WORTH = { Property:0,Equities:0,Bonds:0,Commodities:0,"Cash (Savings)":0,"Cash (Emergency Fund)":0,"Cash (Pension)":0 };
 
+// ─── SAVINGS CATEGORY KINDS ───────────────────────────────────────────────────
+// A savings category is either a pot (cash set aside) or an investment. This
+// used to be decided by looking for "investment" in the name, so anyone who
+// called theirs "Stocks & Shares ISA" got an Investments gauge stuck at zero
+// forever. The kind is now stored explicitly and editable.
+//
+// inferSavingsKind reproduces the old name test exactly, and is used only to
+// migrate existing data and to guess a sensible default for a new category —
+// never to override a kind the user has actually chosen.
+const inferSavingsKind = name => String(name).toLowerCase().includes("invest") ? "investment" : "pot";
+const savingsKind = (name, types) => types?.[name] ?? inferSavingsKind(name);
+const isInvestment = (name, types) => savingsKind(name, types) === "investment";
+
+// Fill in a kind for every category that lacks one, leaving existing choices be.
+function withSavingsKinds(streams, types = {}) {
+  const out = { ...types };
+  streams.forEach(s => { if (out[s] !== "pot" && out[s] !== "investment") out[s] = inferSavingsKind(s); });
+  return out;
+}
+
 // ─── DATA HELPERS ─────────────────────────────────────────────────────────────
 const blankWeekly = () => {
   const o = {};
@@ -66,4 +86,4 @@ function applyNotes(notes, streams, origin = {}) {
   return u;
 }
 
-export { DEFAULT_INCOME_STREAMS, DEFAULT_SAVINGS_STREAMS, DEFAULT_EXP_STREAMS, makeBaselineIncome, makeBaselineSavings, makeBaselineExp, NET_WORTH_ASSETS, DEFAULT_NET_WORTH, blankWeekly, weeklyTotal, allStreamsWeekly, monthlyVal, allMonthly, applyStreams, applyNotes };
+export { inferSavingsKind, savingsKind, isInvestment, withSavingsKinds, DEFAULT_INCOME_STREAMS, DEFAULT_SAVINGS_STREAMS, DEFAULT_EXP_STREAMS, makeBaselineIncome, makeBaselineSavings, makeBaselineExp, NET_WORTH_ASSETS, DEFAULT_NET_WORTH, blankWeekly, weeklyTotal, allStreamsWeekly, monthlyVal, allMonthly, applyStreams, applyNotes };
