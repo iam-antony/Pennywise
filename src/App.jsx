@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, createContext, useContext } from "react";
 import { ComposedChart, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 
@@ -104,8 +104,6 @@ const flagEmoji = locale => {
   if (cc.length !== 2) return "🌐";
   return String.fromCodePoint(...cc.split("").map(c => 0x1F1E6 + c.charCodeAt(0) - 65));
 };
-// Module-level currency — updated synchronously before each App render
-let CURR = CURRENCIES[0]; // GBP default
 
 // ─── FY HELPERS ───────────────────────────────────────────────────────────────
 // fyStartMonth: 0=Jan, 1=Feb, … 3=Apr (default)
@@ -226,12 +224,27 @@ const T = {
   purple:"#a87fd4",
 };
 const CC = ["#d4a853","#7eb3f5","#52c47a","#f5a623","#a87fd4","#5cc8d4","#f06464","#f5c842","#8093f1","#e07070","#7ab87a","#f09d6a","#c4d4a0","#a0c4d4"];
-const fmt = v => {
-  if (typeof v !== "number" || isNaN(v)) return "—";
-  const n = `${CURR.symbol}${Math.abs(v).toLocaleString(CURR.locale,{minimumFractionDigits:0,maximumFractionDigits:2})}`;
-  return v < 0 ? `−${n}` : n;
-};
-const fmtS = v => { if(typeof v!=="number"||isNaN(v))return"—"; return(v>=0?"+":`−`)+`${CURR.symbol}${Math.abs(v).toLocaleString(CURR.locale,{minimumFractionDigits:0,maximumFractionDigits:2})}`; };
+// ─── MONEY FORMATTING ─────────────────────────────────────────────────────────
+// Formatters are built from the selected currency and passed down through
+// context. Components read them with useMoney() rather than reaching for a
+// module-level variable, so nothing has to be mutated during render.
+function makeFormatters(curr) {
+  const abs = v => `${curr.symbol}${Math.abs(v).toLocaleString(curr.locale,{minimumFractionDigits:0,maximumFractionDigits:2})}`;
+  // Plain amount — keeps the sign, so an overspend reads as a loss.
+  const fmt = v => {
+    if (typeof v !== "number" || isNaN(v)) return "—";
+    return v < 0 ? `−${abs(v)}` : abs(v);
+  };
+  // Signed amount — always carries an explicit + or −, for variance columns.
+  const fmtS = v => {
+    if (typeof v !== "number" || isNaN(v)) return "—";
+    return (v >= 0 ? "+" : "−") + abs(v);
+  };
+  return { fmt, fmtS, curr };
+}
+
+const CurrencyContext = createContext(makeFormatters(CURRENCIES[0]));
+const useMoney = () => useContext(CurrencyContext);
 
 const STYLES = `
 @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=DM+Sans:wght@300;400;500;600&display=swap');
@@ -425,6 +438,7 @@ function FormulaCell({ value, onCommit, placeholder, style }) {
 }
 
 function StatCard({ icon, label, value, sub, delta, deltaLabel = "vs baseline", posGood = true, valueTone }) {
+  const { fmt, fmtS } = useMoney();
   const good = posGood ? T.success : T.danger, bad = posGood ? T.danger : T.success;
   return (
     <div className="stat-card">
@@ -438,6 +452,7 @@ function StatCard({ icon, label, value, sub, delta, deltaLabel = "vs baseline", 
 }
 
 function BudgetBar({ label, actual, budget, color = T.accent }) {
+  const { fmt } = useMoney();
   const pct = budget > 0 ? (actual/budget)*100 : 0, over = actual > budget;
   return (
     <div style={{ marginBottom:9 }}>
@@ -676,6 +691,7 @@ function CategoryModal({ title, streams, onSave, onClose }) {
 
 // ─── BASELINE EDITOR ─────────────────────────────────────────────────────────
 function BaselineEditorModal({ section, streams, data, fyStart, totalMonths, onSave, onClose }) {
+  const { fmt } = useMoney();
   const fys = useMemo(() => getAllFYs(fyStart, totalMonths), [fyStart, totalMonths]);
   const [selFY, setSelFY] = useState(fys[0]?.year);
   const [draft, setDraft] = useState(() => JSON.parse(JSON.stringify(data)));
@@ -792,6 +808,7 @@ function BaselineEditorModal({ section, streams, data, fyStart, totalMonths, onS
 
 // ─── GAUGE DIAL ───────────────────────────────────────────────────────────────
 function GaugeDial({ label, actual, target, color, sub, icon }) {
+  const { fmt } = useMoney();
   const raw = target > 0 ? actual/target : 0;
   const ARC = 220, START = 160;
   const toR = d => d * Math.PI / 180;
@@ -831,6 +848,7 @@ function GaugeDial({ label, actual, target, color, sub, icon }) {
 
 // ─── COMBO CHART (bar + cumulative line + projection) ────────────────────────
 function AnnotatedTooltip({ active, payload, label }) {
+  const { fmt } = useMoney();
   if (!active||!payload?.length) return null;
   return (
     <div style={{ background:T.card, border:`1px solid ${T.border}`, borderRadius:10, padding:"10px 14px", fontSize:12, minWidth:180 }}>
@@ -845,6 +863,7 @@ function AnnotatedTooltip({ active, payload, label }) {
 }
 
 function ComboChart({ title, streams, weeklyData, forecastData, baselineData, fyMonths, color, type }) {
+  const { fmt } = useMoney();
   const [sel, setSel] = useState(streams);
   useEffect(() => setSel(prev => {
     const valid = prev.filter(s => streams.includes(s));
@@ -953,6 +972,7 @@ function ComboChart({ title, streams, weeklyData, forecastData, baselineData, fy
 
 // ─── FY SUMMARY TABLE (used in Income / Savings / Expenditure FY view) ────────
 function FYSummaryTable({ streams, fyMonths, baselineData, forecastData, weeklyData, incomeActual, type }) {
+  const { fmt, fmtS } = useMoney();
   const isWeekly = !!weeklyData;
   const getVal = (s, mi) => isWeekly ? weeklyTotal(weeklyData, s, mi) : monthlyVal(incomeActual, s, mi);
   const getFc   = (s, mi) => monthlyVal(forecastData, s, mi);
@@ -1003,6 +1023,7 @@ function FYSummaryTable({ streams, fyMonths, baselineData, forecastData, weeklyD
 
 // ─── WEEKLY ENTRY TABLE ───────────────────────────────────────────────────────
 function WeeklyEntryTable({ streams, weeklyData, baselineData, forecastData, monthIdx, onUpdateWeekly, onUpdateForecast, type, notes, onUpdateNote }) {
+  const { fmt, fmtS } = useMoney();
   const [activeWeek, setActiveWeek] = useState(1);
   const [expandedNote, setExpandedNote] = useState(null); // stream key for expanded note row
   const color = type === "savings" ? T.success : T.danger;
@@ -1154,6 +1175,7 @@ function WeeklyEntryTable({ streams, weeklyData, baselineData, forecastData, mon
 
 // ─── SANKEY DIAGRAM ───────────────────────────────────────────────────────────
 function SankeyDiagram({ incomeStreams, savingsStreams, expStreams, incomeActual, savingsWeekly, expWeekly, monthIdx, fyMonths, viewMode }) {
+  const { fmt } = useMoney();
   const [hovered, setHovered] = useState(null);
 
   const getInc = s => viewMode === "fy"
@@ -1298,6 +1320,7 @@ function SankeyDiagram({ incomeStreams, savingsStreams, expStreams, incomeActual
 function Dashboard({ monthIdx, fyStart, totalMonths, incomeStreams, savingsStreams, expStreams,
   baselineIncome, baselineSavings, baselineExp, incomeActual, savingsForecast, savingsWeekly, expForecast, expWeekly,
   onFYSettings }) {
+  const { fmt } = useMoney();
 
   const fys = useMemo(() => getAllFYs(fyStart, totalMonths), [fyStart, totalMonths]);
   const [selFY, setSelFY] = useState(() => getFYYear(monthIdx, fyStart));
@@ -1411,6 +1434,7 @@ function Dashboard({ monthIdx, fyStart, totalMonths, incomeStreams, savingsStrea
 }
 
 function IncomePage({ monthIdx, fyStart, totalMonths, streams, setStreams, baselineData, actualData, onUpdate, onEditBaseline, incomeNotes, onUpdateIncomeNote }) {
+  const { fmt, fmtS } = useMoney();
   const [catModal, setCatModal] = useState(false);
   const [viewMode, setViewMode] = useState("month");
   const [selFY, setSelFY] = useState(() => getFYYear(monthIdx, fyStart));
@@ -1551,6 +1575,7 @@ function IncomePage({ monthIdx, fyStart, totalMonths, streams, setStreams, basel
 
 function SavingsPage({ monthIdx, fyStart, totalMonths, streams, setStreams, baselineData, forecastData, weeklyData,
   onUpdateWeekly, onUpdateForecast, onEditBaseline }) {
+  const { fmt } = useMoney();
   const [catModal, setCatModal] = useState(false);
   const [viewMode, setViewMode] = useState("month");
   const [selFY, setSelFY] = useState(() => getFYYear(monthIdx, fyStart));
@@ -1607,6 +1632,7 @@ function SavingsPage({ monthIdx, fyStart, totalMonths, streams, setStreams, base
 
 function ExpenditurePage({ monthIdx, fyStart, totalMonths, streams, setStreams, baselineData, forecastData, weeklyData,
   onUpdateWeekly, onUpdateForecast, onEditBaseline, expNotes, onUpdateExpNote }) {
+  const { fmt } = useMoney();
   const [catModal, setCatModal] = useState(false);
   const [viewMode, setViewMode] = useState("month");
   const [selFY, setSelFY] = useState(() => getFYYear(monthIdx, fyStart));
@@ -1662,6 +1688,7 @@ function ExpenditurePage({ monthIdx, fyStart, totalMonths, streams, setStreams, 
 }
 
 function NetWorthPage({ netWorth, onUpdate }) {
+  const { fmt } = useMoney();
   const total = NET_WORTH_ASSETS.reduce((a,k)=>a+(netWorth[k]||0),0);
   const pie = NET_WORTH_ASSETS.map((k,i)=>({name:k,value:netWorth[k]||0,color:CC[i]})).filter(d=>d.value>0);
   return (
@@ -1705,6 +1732,7 @@ function NetWorthPage({ netWorth, onUpdate }) {
 }
 
 function MoneyOwedPage({ rows, onUpdate }) {
+  const { fmt } = useMoney();
   const total=rows.reduce((a,r)=>a+(r.amount||0),0), paid=rows.reduce((a,r)=>a+(r.paid||0),0);
   const upd=(i,k,v)=>{const r=[...rows];r[i]={...r[i],[k]:v};onUpdate(r);};
   const inp={background:T.inputBg,border:`1px solid ${T.border}`,color:T.text,borderRadius:6,padding:"5px 8px",fontSize:13,fontFamily:"'DM Sans'"};
@@ -1753,6 +1781,7 @@ function MoneyOwedPage({ rows, onUpdate }) {
 
 function BaselinePage({ monthIdx, fyStart, totalMonths, incomeStreams, savingsStreams, expStreams,
   baselineIncome, baselineSavings, baselineExp, onUpdateBaseline, onEditBaseline }) {
+  const { fmt } = useMoney();
   const [selFY, setSelFY] = useState(() => getFYYear(monthIdx, fyStart));
   const fys = useMemo(() => getAllFYs(fyStart, totalMonths), [fyStart, totalMonths]);
   useEffect(()=>setSelFY(getFYYear(monthIdx,fyStart)),[monthIdx,fyStart]);
@@ -2373,6 +2402,10 @@ export default function App() {
     ...p, [s]: { ...(p[s]||{}), [mi]: text }
   })), []);
 
+  // Formatters for the selected currency, handed to the tree via context so no
+  // module-level state has to be written during render.
+  const money = useMemo(() => makeFormatters(currency), [currency]);
+
   const navItems = [
     {key:"dashboard",icon:"◈",label:"Dashboard"},
     {key:"income",icon:"↗",label:"Income"},
@@ -2392,9 +2425,6 @@ export default function App() {
     </div>
   );
 
-  // Update module-level CURR before render so fmt/fmtS pick up correct currency
-  CURR = currency;
-
   // Show onboarding for brand-new users (wait until storage check completes)
   if (onboardLoading) return (
     <div style={{ minHeight:"100vh", background:T.bg, display:"flex", alignItems:"center", justifyContent:"center" }}>
@@ -2405,6 +2435,7 @@ export default function App() {
   if (!onboarded) return <Onboarding onComplete={handleOnboardingComplete} />;
 
   return (
+    <CurrencyContext.Provider value={money}>
     <div style={{ minHeight:"100vh", background:T.bg }}>
       <style>{STYLES}</style>
 
@@ -2499,5 +2530,6 @@ export default function App() {
         </div>
       </div>
     </div>
+    </CurrencyContext.Provider>
   );
 }
