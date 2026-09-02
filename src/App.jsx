@@ -1446,44 +1446,69 @@ function MoneyOwedPage({ rows, onUpdate }) {
   const total=rows.reduce((a,r)=>a+(r.amount||0),0), paid=rows.reduce((a,r)=>a+(r.paid||0),0);
   const upd=(i,k,v)=>{const r=[...rows];r[i]={...r[i],[k]:v};onUpdate(r);};
   const inp={background:T.inputBg,border:`1px solid ${T.border}`,color:T.text,borderRadius:6,padding:"5px 8px",fontSize:13,fontFamily:"'DM Sans'"};
+  const today = new Date().toISOString().slice(0, 10);
+  // "amex" was a private-build leftover that meant nothing to anyone else.
+  // Old rows carry it across into the free-text Method field on first read.
+  const methodOf = r => r.method ?? (r.amex ? "Amex" : "");
+  const outstanding = r => (r.amount||0) - (r.paid||0);
+  const isOverdue = r => r.dueBy && r.dueBy < today && outstanding(r) > 0.005;
+  const overdueCount = rows.filter(isOverdue).length;
   return (
     <div className="fade">
       <div style={{ fontFamily:"'Playfair Display'", fontSize:20, fontWeight:600, marginBottom:20 }}>Money Owed</div>
       <div style={{ display:"flex", gap:12, flexWrap:"wrap", marginBottom:20 }}>
         <StatCard icon="📋" label="Total Loaned" value={fmt(total)}/>
         <StatCard icon="✅" label="Received" value={fmt(paid)}/>
-        <StatCard icon="⏳" label="Outstanding" value={fmt(total-paid)}/>
+        <StatCard icon="⏳" label="Outstanding" value={fmt(total-paid)}
+          sub={overdueCount ? `${overdueCount} past its due date` : undefined}
+          valueTone={overdueCount ? T.danger : undefined}/>
       </div>
       <div className="card" style={{ padding:20 }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
           <div className="sl">Loans Tracker</div>
-          <button className="btn btn-primary btn-sm" onClick={()=>onUpdate([...rows,{name:"",amount:0,reason:"",amex:false,paid:0}])}>+ Add</button>
+          <button className="btn btn-primary btn-sm" onClick={()=>onUpdate([...rows,{name:"",amount:0,reason:"",method:"",lentOn:today,dueBy:"",paid:0}])}>+ Add</button>
         </div>
+        {rows.length === 0 ? (
+          <div style={{ textAlign:"center", padding:"30px 0", color:T.sub, fontSize:13 }}>
+            Nothing lent out yet. Use <strong style={{ color:T.accent }}>+ Add</strong> to record the first one.
+          </div>
+        ) : (
         <div style={{ overflowX:"auto" }}>
           <table>
             <thead><tr>
-              <th style={{ textAlign:"left",width:130 }}>Name</th><th>Amount</th>
-              <th style={{ textAlign:"left" }}>Reason</th><th>Amex</th><th>Paid</th><th>Balance</th><th></th>
+              <th style={{ textAlign:"left",width:120 }}>Name</th><th>Amount</th>
+              <th style={{ textAlign:"left" }}>Reason</th>
+              <th style={{ textAlign:"left" }}>Method</th>
+              <th>Lent on</th><th>Due by</th>
+              <th>Paid</th><th>Balance</th><th></th>
             </tr></thead>
             <tbody>
               {rows.map((r,i)=>(
                 <tr key={i}>
-                  <td><input value={r.name||""} onChange={e=>upd(i,"name",e.target.value)} style={{...inp,width:120}}/></td>
+                  <td><input value={r.name||""} onChange={e=>upd(i,"name",e.target.value)} style={{...inp,width:110}}/></td>
                   <td><NumInput value={r.amount} onChange={v=>upd(i,"amount",v)}/></td>
-                  <td style={{ textAlign:"left" }}><input value={r.reason||""} onChange={e=>upd(i,"reason",e.target.value)} style={{...inp,width:180}}/></td>
-                  <td><input type="checkbox" checked={r.amex||false} onChange={e=>upd(i,"amex",e.target.checked)} style={{accentColor:T.accent,width:15,height:15}}/></td>
+                  <td style={{ textAlign:"left" }}><input value={r.reason||""} onChange={e=>upd(i,"reason",e.target.value)} style={{...inp,width:150}}/></td>
+                  <td style={{ textAlign:"left" }}><input value={methodOf(r)} placeholder="Bank transfer…"
+                    onChange={e=>upd(i,"method",e.target.value)} style={{...inp,width:120}}/></td>
+                  <td><input type="date" value={r.lentOn||""} onChange={e=>upd(i,"lentOn",e.target.value)}
+                    style={{...inp,width:132,colorScheme:"dark"}}/></td>
+                  <td><input type="date" value={r.dueBy||""} onChange={e=>upd(i,"dueBy",e.target.value)}
+                    style={{...inp,width:132,colorScheme:"dark",borderColor:isOverdue(r)?T.danger:T.border}}/></td>
                   <td><NumInput value={r.paid} onChange={v=>upd(i,"paid",v)}/></td>
-                  <td><span style={{color:(r.amount-r.paid)<=0?T.success:T.warning,fontWeight:600,fontSize:13}}>{fmt((r.amount||0)-(r.paid||0))}</span></td>
+                  <td><span style={{color:outstanding(r)<=0?T.success:isOverdue(r)?T.danger:T.warning,fontWeight:600,fontSize:13}}>
+                    {fmt(outstanding(r))}{isOverdue(r) && <span title="Past its due date"> ⚠</span>}
+                  </span></td>
                   <td><button className="btn-icon" style={{color:T.danger}} onClick={()=>onUpdate(rows.filter((_,j)=>j!==i))}>✕</button></td>
                 </tr>
               ))}
               <tr className="total-row">
-                <td>Total</td><td>{fmt(total)}</td><td></td><td></td><td>{fmt(paid)}</td>
+                <td>Total</td><td>{fmt(total)}</td><td></td><td></td><td></td><td></td><td>{fmt(paid)}</td>
                 <td style={{color:total-paid>0?T.warning:T.success}}>{fmt(total-paid)}</td><td></td>
               </tr>
             </tbody>
           </table>
         </div>
+        )}
       </div>
     </div>
   );
