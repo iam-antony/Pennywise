@@ -6,7 +6,7 @@ import { CURRENCIES, flagEmoji } from "./lib/currencies.js";
 import { makeFormatters } from "./lib/money.js";
 import { DEFAULT_INCOME_STREAMS, DEFAULT_SAVINGS_STREAMS, DEFAULT_EXP_STREAMS, makeBaselineIncome, makeBaselineSavings, makeBaselineExp, NET_WORTH_ASSETS, DEFAULT_NET_WORTH, blankWeekly, weeklyTotal, allStreamsWeekly, monthlyVal, allMonthly, applyStreams, applyNotes } from "./lib/data.js";
 import { load, save } from "./lib/storage.js";
-import { evalExpr, isFormula } from "./lib/expr.js";
+import { isFormula, parseEntry } from "./lib/expr.js";
 import { T, CC, STYLES } from "./theme.js";
 
 const CurrencyContext = createContext(makeFormatters(CURRENCIES[0]));
@@ -14,6 +14,7 @@ const useMoney = () => useContext(CurrencyContext);
 
 // ─── REUSABLE ATOMS ───────────────────────────────────────────────────────────
 function NumInput({ value, onChange, className = "inp inp-num", disabled }) {
+  const { separators } = useMoney();
   const [raw, setRaw]       = useState(value != null && value !== 0 ? String(value) : "");
   const [focused, setFocus] = useState(false);
 
@@ -23,23 +24,22 @@ function NumInput({ value, onChange, className = "inp inp-num", disabled }) {
   }, [value, focused]);
 
   const formula = isFormula(raw);
-  const result  = formula ? evalExpr(raw) : null;
+  const result  = parseEntry(raw, separators);
   const valid   = result !== null;
 
   const commit = () => {
     setFocus(false);
-    let v;
-    if (formula && valid) {
-      v = result;
-      setRaw(String(v === 0 ? "" : v));
-    } else {
-      v = parseFloat(raw) || 0;
-      setRaw(v === 0 ? "" : String(v));
+    // Unreadable input is rejected rather than coerced to 0, which would
+    // silently overwrite a real figure.
+    if (!valid) {
+      setRaw(value != null && value !== 0 ? String(value) : "");
+      return;
     }
-    onChange(v);
+    setRaw(result === 0 ? "" : String(result));
+    onChange(result);
   };
 
-  const borderColor = focused && formula
+  const borderColor = focused && (formula || !valid)
     ? (valid ? T.accent : T.danger)
     : undefined;
 
@@ -60,8 +60,8 @@ function NumInput({ value, onChange, className = "inp inp-num", disabled }) {
           fontFamily:"'DM Sans',sans-serif",
         }}
       />
-      {/* Live preview bubble */}
-      {focused && formula && (
+      {/* Live preview bubble — shows the result of a formula, or why input is rejected */}
+      {focused && (formula || !valid) && (
         <div style={{
           position:"absolute", bottom:"calc(100% + 5px)", right:0, zIndex:60,
           background:T.card, border:`1px solid ${valid ? T.accent : T.danger}`,
@@ -72,7 +72,7 @@ function NumInput({ value, onChange, className = "inp inp-num", disabled }) {
         }}>
           {valid
             ? <><span style={{ color:T.sub }}>={" "}</span><strong>{String(result)}</strong></>
-            : <span>✕ invalid</span>}
+            : <span>✕ can't read that as an amount</span>}
         </div>
       )}
     </div>
@@ -81,31 +81,35 @@ function NumInput({ value, onChange, className = "inp inp-num", disabled }) {
 
 // Compact formula-aware cell for the baseline editor grid
 function FormulaCell({ value, onCommit, placeholder, style }) {
+  const { separators } = useMoney();
   const [raw, setRaw]       = useState(value != null && value !== "" && value !== 0 ? String(value) : "");
   const [focused, setFocus] = useState(false);
   useEffect(() => { if (!focused) setRaw(value != null && value !== "" && value !== 0 ? String(value) : ""); }, [value, focused]);
 
   const formula = isFormula(raw);
-  const result  = formula ? evalExpr(raw) : null;
+  const result  = parseEntry(raw, separators);
   const valid   = result !== null;
 
   const commit = () => {
     setFocus(false);
-    let v;
-    if (formula && valid) { v = result; setRaw(v ? String(v) : ""); }
-    else { v = parseFloat(raw) || 0; setRaw(v ? String(v) : ""); }
-    onCommit(v);
+    // Reject what cannot be read rather than writing 0 over a real figure.
+    if (!valid) {
+      setRaw(value != null && value !== "" && value !== 0 ? String(value) : "");
+      return;
+    }
+    setRaw(result ? String(result) : "");
+    onCommit(result);
   };
 
   return (
     <div style={{ position:"relative", display:"inline-block" }}>
       <input className="bl-cell" type="text" value={raw} placeholder={placeholder || ""}
-        style={{ ...style, ...(focused && formula ? { borderColor: valid ? T.accent : T.danger } : {}) }}
+        style={{ ...style, ...(focused && (formula || !valid) ? { borderColor: valid ? T.accent : T.danger } : {}) }}
         onChange={e => setRaw(e.target.value)}
         onFocus={() => setFocus(true)}
         onBlur={commit}
         onKeyDown={e => { if (e.key === "Enter") e.target.blur(); }} />
-      {focused && formula && (
+      {focused && (formula || !valid) && (
         <div style={{
           position:"absolute", bottom:"calc(100% + 4px)", right:0, zIndex:60,
           background:T.card, border:`1px solid ${valid ? T.accent : T.danger}`,
@@ -113,7 +117,7 @@ function FormulaCell({ value, onCommit, placeholder, style }) {
           color: valid ? T.accent : T.danger, pointerEvents:"none",
           boxShadow:"0 2px 8px rgba(0,0,0,.45)",
         }}>
-          {valid ? <>= <strong>{result}</strong></> : "✕ invalid"}
+          {valid ? <>= <strong>{result}</strong></> : "✕ can't read that"}
         </div>
       )}
     </div>
@@ -546,7 +550,7 @@ function AnnotatedTooltip({ active, payload, label }) {
 }
 
 function ComboChart({ title, streams, weeklyData, forecastData, baselineData, fyMonths, color, type }) {
-  const { fmt } = useMoney();
+  const { fmt, fmtAxis } = useMoney();
   const [sel, setSel] = useState(streams);
   useEffect(() => setSel(prev => {
     const valid = prev.filter(s => streams.includes(s));
@@ -629,8 +633,8 @@ function ComboChart({ title, streams, weeklyData, forecastData, baselineData, fy
         <ComposedChart data={data} barGap={2} barCategoryGap="25%">
           <CartesianGrid strokeDasharray="3 3" stroke={T.border}/>
           <XAxis dataKey="name" tick={{fill:T.sub,fontSize:11}} axisLine={false} tickLine={false}/>
-          <YAxis yAxisId="m" orientation="left" tick={{fill:T.sub,fontSize:10}} axisLine={false} tickLine={false} tickFormatter={v=>`£${(v/1000).toFixed(0)}k`} width={40}/>
-          <YAxis yAxisId="c" orientation="right" tick={{fill:T.sub,fontSize:10}} axisLine={false} tickLine={false} tickFormatter={v=>`£${(v/1000).toFixed(0)}k`} width={40}/>
+          <YAxis yAxisId="m" orientation="left" tick={{fill:T.sub,fontSize:10}} axisLine={false} tickLine={false} tickFormatter={fmtAxis} width={40}/>
+          <YAxis yAxisId="c" orientation="right" tick={{fill:T.sub,fontSize:10}} axisLine={false} tickLine={false} tickFormatter={fmtAxis} width={40}/>
           <Tooltip content={<AnnotatedTooltip/>}/>
           <Bar yAxisId="m" dataKey="baseline" name="Baseline" fill={BC.baseline} radius={[3,3,0,0]} barSize={8}/>
           <Bar yAxisId="m" dataKey="forecast" name="Forecast" fill={BC.forecast} radius={[3,3,0,0]} barSize={8}/>
@@ -899,21 +903,38 @@ function SankeyDiagram({ incomeStreams, savingsStreams, expStreams, incomeActual
   // Single merged source node spans the full height
   const srcH = H;
 
-  // Layout dest nodes scaled proportionally
+  // Geometry is scaled against whichever is larger, income or what has been
+  // allocated out of it. Dividing by income alone meant that in an overspent
+  // month the flows summed past 100% and spilled out of the source bar —
+  // which is exactly the month worth looking at. Percentages stay relative to
+  // income, so "114% of income" still reads as the true figure.
+  const overspend = Math.max(0, allocated - totalIncome);
+  const scale = Math.max(totalIncome, allocated);
+
+  // Lay the destination nodes out proportionally, but give even the smallest a
+  // visible bar, then normalise so the minimum-height floor cannot push the
+  // stack past the height it has to fit in.
+  const fitHeights = (values, total, min) => {
+    let hs = values.map(v => Math.max(min, (v / scale) * total));
+    const sum = hs.reduce((a, h) => a + h, 0);
+    return sum > total ? hs.map(h => h * (total / sum)) : hs;
+  };
+
+  const avail = H - (dstNodes.length - 1) * gapY;
+  const heights = fitHeights(dstNodes.map(n => n.value), avail, 10);
   let dy = 0;
-  const dstLayout = dstNodes.map(n => {
-    const h = Math.max(10, (n.value / totalIncome) * (H - (dstNodes.length - 1) * gapY));
-    const node = { ...n, x:dstX, y:dy, h };
-    dy += h + gapY;
+  const dstLayout = dstNodes.map((n, i) => {
+    const node = { ...n, x:dstX, y:dy, h:heights[i] };
+    dy += heights[i] + gapY;
     return node;
   });
 
   // One flow per destination — all originate from the single source bar
+  const flowHeights = fitHeights(dstNodes.map(n => n.value), srcH, 1);
   let srcOff = 0;
-  const flows = dstLayout.map(dst => {
-    const fh = Math.max(1, (dst.value / totalIncome) * srcH);
-    const flow = { dst, y1:srcOff, y2:dst.y, fh };
-    srcOff += fh;
+  const flows = dstLayout.map((dst, i) => {
+    const flow = { dst, y1:srcOff, y2:dst.y, fh:flowHeights[i] };
+    srcOff += flowHeights[i];
     return flow;
   });
 
@@ -960,22 +981,36 @@ function SankeyDiagram({ incomeStreams, savingsStreams, expStreams, incomeActual
           </text>
         ))}
 
-        {/* Dest nodes + labels */}
-        {dstLayout.map(n => (
-          <g key={n.name}>
-            <rect x={n.x} y={n.y} width={nodeW} height={n.h} fill={n.color} rx={2}/>
-            <text x={n.x + nodeW + 10} y={n.y + n.h/2 - (n.h > 20 ? 6 : 0)}
-              textAnchor="start" fontSize={11} fontWeight="600" fill={T.text} fontFamily="'DM Sans'">
-              {trunc(n.name, 20)}
-            </text>
-            {n.h > 16 && (
-              <text x={n.x + nodeW + 10} y={n.y + n.h/2 + 9}
-                textAnchor="start" fontSize={10} fill={T.sub} fontFamily="'DM Sans'">
-                {fmt(n.value)} · {Math.round(n.value / totalIncome * 100)}%
-              </text>
-            )}
-          </g>
-        ))}
+        {/* Dest nodes + labels. A short node puts its name and amount on one
+            line rather than dropping the amount, which used to make small
+            categories read as though they were zero. */}
+        {dstLayout.map(n => {
+          const pct = Math.round(n.value / totalIncome * 100);
+          const roomy = n.h > 22;
+          return (
+            <g key={n.name}>
+              <rect x={n.x} y={n.y} width={nodeW} height={n.h} fill={n.color} rx={2}/>
+              {roomy ? (
+                <>
+                  <text x={n.x + nodeW + 10} y={n.y + n.h/2 - 2}
+                    textAnchor="start" fontSize={11} fontWeight="600" fill={T.text} fontFamily="'DM Sans'">
+                    {trunc(n.name, 20)}
+                  </text>
+                  <text x={n.x + nodeW + 10} y={n.y + n.h/2 + 11}
+                    textAnchor="start" fontSize={10} fill={T.sub} fontFamily="'DM Sans'">
+                    {fmt(n.value)} · {pct}%
+                  </text>
+                </>
+              ) : (
+                <text x={n.x + nodeW + 10} y={n.y + n.h/2 + 3.5}
+                  textAnchor="start" fontSize={10} fill={T.text} fontFamily="'DM Sans'">
+                  <tspan fontWeight="600">{trunc(n.name, 16)}</tspan>
+                  <tspan fill={T.sub}> {fmt(n.value)} · {pct}%</tspan>
+                </text>
+              )}
+            </g>
+          );
+        })}
 
         {/* Hover tooltip */}
         {hf && (
@@ -985,9 +1020,21 @@ function SankeyDiagram({ incomeStreams, savingsStreams, expStreams, incomeActual
         )}
       </svg>
 
+      {/* Overspend notice — the diagram alone cannot say that outgoings
+          exceeded income, only that the bars are full. */}
+      {overspend > 0.5 && (
+        <div style={{ marginTop:10, padding:"9px 14px", background:"rgba(240,100,100,.08)",
+          border:`1px solid rgba(240,100,100,.3)`, borderRadius:8, fontSize:12, color:T.sub }}>
+          <strong style={{ color:T.danger }}>Spent and saved {fmt(overspend)} more than came in.</strong>{" "}
+          Outgoings are {Math.round(allocated / totalIncome * 100)}% of income this period, so the flows
+          below are scaled against the larger figure.
+        </div>
+      )}
+
       {/* Legend */}
       <div style={{ display:"flex", gap:14, flexWrap:"wrap", marginTop:10, paddingLeft:PAD_L }}>
-        {[{label:"Income",color:T.accent},{label:"Savings",color:T.success},{label:"Investments",color:T.blue},{label:"Expenditure",color:"#f06464"},{label:"Unallocated",color:T.sub}]
+        {[{label:"Income",color:T.accent},{label:"Savings",color:T.success},{label:"Investments",color:T.blue},{label:"Expenditure",color:"#f06464"},
+          ...(overspend > 0.5 ? [] : [{label:"Unallocated",color:T.sub}])]
           .map(({label,color}) => (
             <div key={label} style={{ display:"flex", alignItems:"center", gap:5, fontSize:11, color:T.sub }}>
               <div style={{ width:9, height:9, borderRadius:2, background:color }}/>{label}
@@ -1051,7 +1098,7 @@ function Dashboard({ monthIdx, fyStart, totalMonths, incomeStreams, savingsStrea
       </div>
 
       <FYToolbar fyStart={fyStart} monthIdx={monthIdx} totalMonths={totalMonths} selectedFY={selFY} onSelectFY={setSelFY}
-        viewMode={viewMode} onViewMode={setViewMode} onSettings={() => onFYSettings()} />
+        viewMode={viewMode} onViewMode={setViewMode} onSettings={onFYSettings} />
 
       {/* Stat Cards */}
       <div style={{ display:"flex", gap:12, flexWrap:"wrap", marginBottom:20 }}>
@@ -1116,12 +1163,11 @@ function Dashboard({ monthIdx, fyStart, totalMonths, incomeStreams, savingsStrea
   );
 }
 
-function IncomePage({ monthIdx, fyStart, totalMonths, streams, setStreams, baselineData, actualData, onUpdate, onEditBaseline, incomeNotes, onUpdateIncomeNote }) {
+function IncomePage({ monthIdx, fyStart, totalMonths, streams, setStreams, baselineData, actualData, onUpdate, onEditBaseline, incomeNotes, onUpdateIncomeNote, onFYSettings }) {
   const { fmt, fmtS } = useMoney();
   const [catModal, setCatModal] = useState(false);
   const [viewMode, setViewMode] = useState("month");
   const [selFY, setSelFY] = useState(() => getFYYear(monthIdx, fyStart));
-  const [fySettingsOpen, setFYSettingsOpen] = useState(false);
   const [expandedNote, setExpandedNote] = useState(null);
   useEffect(()=>setSelFY(getFYYear(monthIdx,fyStart)),[monthIdx,fyStart]);
   const fyMonths = getFYMonths(selFY, fyStart, totalMonths);
@@ -1140,7 +1186,7 @@ function IncomePage({ monthIdx, fyStart, totalMonths, streams, setStreams, basel
       {catModal && <CategoryModal title="Income" streams={streams} onSave={(s,o)=>{setStreams(s,o);setCatModal(false);}} onClose={()=>setCatModal(false)}/>}
 
       <FYToolbar fyStart={fyStart} monthIdx={monthIdx} totalMonths={totalMonths} selectedFY={selFY} onSelectFY={setSelFY}
-        viewMode={viewMode} onViewMode={setViewMode} onSettings={()=>setFYSettingsOpen(true)}/>
+        viewMode={viewMode} onViewMode={setViewMode} onSettings={onFYSettings}/>
 
       {viewMode === "fy" ? (
         <div>
@@ -1257,8 +1303,8 @@ function IncomePage({ monthIdx, fyStart, totalMonths, streams, setStreams, basel
 }
 
 function SavingsPage({ monthIdx, fyStart, totalMonths, streams, setStreams, baselineData, forecastData, weeklyData,
-  onUpdateWeekly, onUpdateForecast, onEditBaseline }) {
-  const { fmt } = useMoney();
+  onUpdateWeekly, onUpdateForecast, onEditBaseline, onFYSettings }) {
+  const { fmt, fmtAxis } = useMoney();
   const [catModal, setCatModal] = useState(false);
   const [viewMode, setViewMode] = useState("month");
   const [selFY, setSelFY] = useState(() => getFYYear(monthIdx, fyStart));
@@ -1276,7 +1322,7 @@ function SavingsPage({ monthIdx, fyStart, totalMonths, streams, setStreams, base
       </div>
       {catModal && <CategoryModal title="Savings" streams={streams} onSave={(s,o)=>{setStreams(s,o);setCatModal(false);}} onClose={()=>setCatModal(false)}/>}
       <FYToolbar fyStart={fyStart} monthIdx={monthIdx} totalMonths={totalMonths} selectedFY={selFY} onSelectFY={setSelFY}
-        viewMode={viewMode} onViewMode={setViewMode} onSettings={()=>{}}/>
+        viewMode={viewMode} onViewMode={setViewMode} onSettings={onFYSettings}/>
 
       {viewMode === "fy" ? (
         <div>
@@ -1291,7 +1337,7 @@ function SavingsPage({ monthIdx, fyStart, totalMonths, streams, setStreams, base
               <BarChart data={fyMonths.map(mi => { const r={name:MONTHS[mi]?.short}; streams.forEach(s=>{r[s]=weeklyTotal(weeklyData,s,mi);}); return r; })} barSize={9}>
                 <CartesianGrid strokeDasharray="3 3" stroke={T.border}/>
                 <XAxis dataKey="name" tick={{fill:T.sub,fontSize:11}} axisLine={false} tickLine={false}/>
-                <YAxis tick={{fill:T.sub,fontSize:10}} axisLine={false} tickLine={false} tickFormatter={v=>`£${v}`}/>
+                <YAxis tick={{fill:T.sub,fontSize:10}} axisLine={false} tickLine={false} tickFormatter={fmtAxis}/>
                 <Tooltip contentStyle={{background:T.card,border:`1px solid ${T.border}`,borderRadius:8,fontSize:12}} formatter={v=>fmt(v)}/>
                 <Legend wrapperStyle={{fontSize:11}}/>
                 {streams.map((s,i)=><Bar key={s} dataKey={s} stackId="a" fill={CC[i%CC.length]}/>)}
@@ -1314,8 +1360,8 @@ function SavingsPage({ monthIdx, fyStart, totalMonths, streams, setStreams, base
 }
 
 function ExpenditurePage({ monthIdx, fyStart, totalMonths, streams, setStreams, baselineData, forecastData, weeklyData,
-  onUpdateWeekly, onUpdateForecast, onEditBaseline, expNotes, onUpdateExpNote }) {
-  const { fmt } = useMoney();
+  onUpdateWeekly, onUpdateForecast, onEditBaseline, expNotes, onUpdateExpNote, onFYSettings }) {
+  const { fmt, fmtAxis } = useMoney();
   const [catModal, setCatModal] = useState(false);
   const [viewMode, setViewMode] = useState("month");
   const [selFY, setSelFY] = useState(() => getFYYear(monthIdx, fyStart));
@@ -1333,7 +1379,7 @@ function ExpenditurePage({ monthIdx, fyStart, totalMonths, streams, setStreams, 
       </div>
       {catModal && <CategoryModal title="Expenditure" streams={streams} onSave={(s,o)=>{setStreams(s,o);setCatModal(false);}} onClose={()=>setCatModal(false)}/>}
       <FYToolbar fyStart={fyStart} monthIdx={monthIdx} totalMonths={totalMonths} selectedFY={selFY} onSelectFY={setSelFY}
-        viewMode={viewMode} onViewMode={setViewMode} onSettings={()=>{}}/>
+        viewMode={viewMode} onViewMode={setViewMode} onSettings={onFYSettings}/>
 
       {viewMode === "fy" ? (
         <div>
@@ -1348,7 +1394,7 @@ function ExpenditurePage({ monthIdx, fyStart, totalMonths, streams, setStreams, 
               <LineChart data={fyMonths.map(mi=>({name:MONTHS[mi]?.short,Baseline:allMonthly(streams,baselineData,mi),Actual:allStreamsWeekly(streams,weeklyData,mi)}))}>
                 <CartesianGrid strokeDasharray="3 3" stroke={T.border}/>
                 <XAxis dataKey="name" tick={{fill:T.sub,fontSize:11}} axisLine={false} tickLine={false}/>
-                <YAxis tick={{fill:T.sub,fontSize:10}} axisLine={false} tickLine={false} tickFormatter={v=>`£${v}`}/>
+                <YAxis tick={{fill:T.sub,fontSize:10}} axisLine={false} tickLine={false} tickFormatter={fmtAxis}/>
                 <Tooltip contentStyle={{background:T.card,border:`1px solid ${T.border}`,borderRadius:8,fontSize:12}} formatter={v=>fmt(v)}/>
                 <Legend wrapperStyle={{fontSize:11}}/>
                 <Line type="monotone" dataKey="Baseline" stroke={T.border} strokeDasharray="4 4" dot={false} strokeWidth={2}/>
@@ -1371,7 +1417,7 @@ function ExpenditurePage({ monthIdx, fyStart, totalMonths, streams, setStreams, 
 }
 
 function NetWorthPage({ netWorth, onUpdate }) {
-  const { fmt } = useMoney();
+  const { fmt, curr } = useMoney();
   const total = NET_WORTH_ASSETS.reduce((a,k)=>a+(netWorth[k]||0),0);
   const pie = NET_WORTH_ASSETS.map((k,i)=>({name:k,value:netWorth[k]||0,color:CC[i]})).filter(d=>d.value>0);
   return (
@@ -1381,7 +1427,7 @@ function NetWorthPage({ netWorth, onUpdate }) {
         <div className="card" style={{ padding:20 }}>
           <div className="sl" style={{ marginBottom:14 }}>Asset Classes</div>
           <table>
-            <thead><tr><th>Class</th><th style={{ color:T.accent }}>Value (£)</th></tr></thead>
+            <thead><tr><th>Class</th><th style={{ color:T.accent }}>Value ({curr.symbol})</th></tr></thead>
             <tbody>
               {NET_WORTH_ASSETS.map(k=><tr key={k}><td>{k}</td><td><NumInput value={netWorth[k]||0} onChange={v=>onUpdate(k,v)}/></td></tr>)}
               <tr className="total-row"><td>Total Net Worth</td><td>{fmt(total)}</td></tr>
@@ -2193,16 +2239,19 @@ export default function App() {
 
           {page==="income"&&<IncomePage monthIdx={monthIdx} fyStart={fyStart} totalMonths={totalMonths} streams={incomeStreams} setStreams={handleSetInc}
             baselineData={baselineIncome} actualData={incomeActual} onUpdate={updIncAct}
-            onEditBaseline={openBaselineEditor} incomeNotes={incomeNotes} onUpdateIncomeNote={updIncomeNote}/>}
+            onEditBaseline={openBaselineEditor} incomeNotes={incomeNotes} onUpdateIncomeNote={updIncomeNote}
+            onFYSettings={()=>setFYSettingsOpen(true)}/>}
 
           {page==="savings"&&<SavingsPage monthIdx={monthIdx} fyStart={fyStart} totalMonths={totalMonths} streams={savingsStreams} setStreams={handleSetSav}
             baselineData={baselineSavings} forecastData={savingsForecast} weeklyData={savingsWeekly}
-            onUpdateWeekly={updSavWk} onUpdateForecast={updSavFc} onEditBaseline={openBaselineEditor}/>}
+            onUpdateWeekly={updSavWk} onUpdateForecast={updSavFc} onEditBaseline={openBaselineEditor}
+            onFYSettings={()=>setFYSettingsOpen(true)}/>}
 
           {page==="expenditure"&&<ExpenditurePage monthIdx={monthIdx} fyStart={fyStart} totalMonths={totalMonths} streams={expStreams} setStreams={handleSetExp}
             baselineData={baselineExp} forecastData={expForecast} weeklyData={expWeekly}
             onUpdateWeekly={updExpWk} onUpdateForecast={updExpFc} onEditBaseline={openBaselineEditor}
-            expNotes={expNotes} onUpdateExpNote={updExpNote}/>}
+            expNotes={expNotes} onUpdateExpNote={updExpNote}
+            onFYSettings={()=>setFYSettingsOpen(true)}/>}
 
           {page==="networth"&&<NetWorthPage netWorth={netWorth} onUpdate={(k,v)=>setNetWorth(p=>({...p,[k]:v}))}/>}
           {page==="moneyowed"&&<MoneyOwedPage rows={moneyOwed} onUpdate={setMoneyOwed}/>}
