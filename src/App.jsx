@@ -418,7 +418,7 @@ function BaselineEditorModal({ section, streams, data, fyStart, totalMonths, onS
           </div>
         </div>
         <div style={{ fontSize:12, color:T.sub, marginBottom:14 }}>
-          Baselines are typically set each March after pay review. Enter monthly values for each category in the selected FY.
+          Baselines are usually reviewed at the start of your financial year ({MONTH_NAMES[fyStart]}). Enter monthly values for each category in the selected FY.
         </div>
         <div style={{ display:"flex", gap:8, marginBottom:12, flexWrap:"wrap" }}>
           <button className="btn btn-ghost btn-sm" onClick={copyFromPrev}>↩ Copy from prev FY</button>
@@ -1502,7 +1502,7 @@ function BaselinePage({ monthIdx, fyStart, totalMonths, incomeStreams, savingsSt
         <div style={{ fontFamily:"'Playfair Display'", fontSize:20, fontWeight:600 }}>Baselines</div>
       </div>
       <div style={{ fontSize:13, color:T.sub, marginBottom:18 }}>
-        Reference values set each March after pay review. Click <strong style={{color:T.accent}}>✎ Edit</strong> to update any section for the selected FY.
+        Reference values, usually reviewed at the start of your financial year (<strong style={{color:T.accent}}>{MONTH_NAMES[fyStart]}</strong>). Click <strong style={{color:T.accent}}>✎ Edit</strong> to update any section for the selected FY.
       </div>
       <div style={{ display:"flex", gap:6, marginBottom:20, flexWrap:"wrap" }}>
         {fys.map(f=><button key={f.year} className={`fy-tab${selFY===f.year?" active":""}`} onClick={()=>setSelFY(f.year)}>{fyLabel(f.year,fyStart)}</button>)}
