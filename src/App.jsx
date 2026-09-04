@@ -364,6 +364,64 @@ function CurrencyModal({ current, onSave, onClose }) {
     </div>
   );
 }
+// ─── MONTH PICKER ────────────────────────────────────────────────────────────
+// The header stepped one month at a time, so reaching a month a year away took
+// twelve presses. Month and year are separate selects: compact in the header,
+// and on a phone they open as the OS picker rather than a grid to scroll.
+function MonthPicker({ monthIdx, totalMonths, onSelect }) {
+  const { MONTHS } = useCalendar();
+
+  // Which months exist in each year. The first and last years are usually
+  // partial — a timeline starting in April has no January — so the month list
+  // is built per year rather than assumed to be all twelve.
+  const byYear = useMemo(() => {
+    const map = new Map();
+    for (let i = 0; i < totalMonths; i++) {
+      const m = MONTHS[i];
+      if (!m) continue;
+      if (!map.has(m.absYear)) map.set(m.absYear, []);
+      map.get(m.absYear).push(i);
+    }
+    return map;
+  }, [MONTHS, totalMonths]);
+
+  const current = MONTHS[monthIdx];
+  const monthsThisYear = byYear.get(current?.absYear) || [];
+
+  // Changing year keeps the same month where that year has it, and otherwise
+  // lands on the nearest one it does — so moving into a partial year never
+  // selects a month that is not there.
+  const changeYear = y => {
+    const list = byYear.get(y) || [];
+    if (!list.length) return;
+    const same = list.find(i => MONTHS[i].absMonth === current.absMonth);
+    if (same !== undefined) { onSelect(same); return; }
+    const nearest = list.reduce((best, i) =>
+      Math.abs(MONTHS[i].absMonth - current.absMonth) < Math.abs(MONTHS[best].absMonth - current.absMonth) ? i : best,
+      list[0]);
+    onSelect(nearest);
+  };
+
+  const sel = {
+    background: T.inputBg, border: `1px solid ${T.border}`, color: T.text,
+    fontFamily: "'DM Sans'", fontSize: 13, fontWeight: 600, borderRadius: 6,
+    padding: "5px 6px", cursor: "pointer", colorScheme: "dark",
+  };
+
+  return (
+    <div style={{ display: "flex", gap: 6 }}>
+      <select aria-label="Month" value={monthIdx} style={{ ...sel, minWidth: 64 }}
+        onChange={e => onSelect(Number(e.target.value))}>
+        {monthsThisYear.map(i => <option key={i} value={i}>{MONTHS[i]?.short}</option>)}
+      </select>
+      <select aria-label="Year" value={current?.absYear ?? ""} style={{ ...sel, minWidth: 74 }}
+        onChange={e => changeYear(Number(e.target.value))}>
+        {[...byYear.keys()].map(y => <option key={y} value={y}>{y}</option>)}
+      </select>
+    </div>
+  );
+}
+
 // ─── CRASH RECOVERY ──────────────────────────────────────────────────────────
 // Without this, any render exception unmounted the whole tree to a blank page,
 // and because saving is manual it took everything entered since the last save
@@ -2777,8 +2835,15 @@ function PennywiseApp() {
         </div>
         <div style={{ display:"flex", alignItems:"center", gap:8 }}>
           <button className="month-btn" onClick={()=>setMonthIdx(Math.max(0,monthIdx-1))} aria-label="Previous month">‹</button>
-          <div style={{ fontSize:14, fontWeight:600, minWidth:104, textAlign:"center" }}>{calendar.MONTHS[monthIdx]?.label}</div>
+          <MonthPicker monthIdx={monthIdx} totalMonths={totalMonths} onSelect={setMonthIdx}/>
           <button className="month-btn" onClick={()=>setMonthIdx(Math.min(totalMonths-1,monthIdx+1))} aria-label="Next month">›</button>
+          {/* Reading the clock happens on the click, never during render.
+              Clamped, so it still lands somewhere sensible if the real month
+              falls outside the tracked timeline. */}
+          <button className="btn btn-ghost btn-xs" title="Jump to the current month"
+            onClick={()=>setMonthIdx(Math.max(0, Math.min(monthIndexOf(calendar.epoch), totalMonths-1)))}>
+            Today
+          </button>
         </div>
         <div className="header-actions" style={{ display:"flex", gap:8, alignItems:"center" }}>
           <button className="btn btn-ghost btn-sm" onClick={()=>setCurrencyOpen(true)} title="Change currency" style={{ gap:5 }}>
