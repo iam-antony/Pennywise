@@ -18,8 +18,13 @@ body{background:${T.bg};color:${T.text};font-family:'DM Sans',sans-serif}
 input[type=number]{-moz-appearance:textfield} input::-webkit-outer-spin-button,input::-webkit-inner-spin-button{-webkit-appearance:none}
 .fade{animation:fi .22s ease} @keyframes fi{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
 .card{background:${T.card};border:1px solid ${T.border};border-radius:12px}
-.nav-item{cursor:pointer;display:flex;align-items:center;gap:9px;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:500;color:${T.sub};transition:all .18s}
+.nav-item{cursor:pointer;display:flex;align-items:center;gap:9px;padding:9px 14px;border-radius:8px;font-size:13px;font-weight:500;color:${T.sub};transition:all .18s;width:100%;text-align:left;background:transparent;border:none;font-family:'DM Sans',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif}
 .nav-item:hover{color:${T.text};background:${T.border}} .nav-item.active{color:${T.accent};background:rgba(212,168,83,.1)}
+/* Keyboard focus has to be visible — the app was previously unusable without a
+   mouse, and an invisible focus ring is only half a fix. */
+:focus-visible{outline:2px solid ${T.accent};outline-offset:2px;border-radius:4px}
+.modal:focus{outline:none}
+@media (prefers-reduced-motion:reduce){*{animation-duration:.01ms !important;transition-duration:.01ms !important}}
 .btn{cursor:pointer;border:none;border-radius:8px;font-family:'DM Sans',sans-serif;font-weight:500;font-size:13px;transition:all .18s;display:inline-flex;align-items:center;gap:6px}
 .btn-primary{background:${T.accent};color:#0d1b2a;padding:8px 18px} .btn-primary:hover{background:#e8c070;transform:translateY(-1px)}
 .btn-ghost{background:transparent;border:1px solid ${T.border};color:${T.sub};padding:7px 14px} .btn-ghost:hover{border-color:${T.accent};color:${T.accent}}
@@ -52,6 +57,45 @@ tr:last-child td{border-bottom:none}
 .vt-btn.active{background:${T.card};color:${T.accent};box-shadow:0 1px 4px rgba(0,0,0,.3)}
 .bl-cell{width:68px;text-align:right;background:${T.inputBg};border:1px solid transparent;color:${T.text};font-size:12px;border-radius:4px;padding:3px 6px;transition:border-color .15s}
 .bl-cell:focus{outline:none;border-color:${T.accent}}
+
+/* ─── SHELL ────────────────────────────────────────────────────────────────
+   The shell was laid out with inline styles, which a media query cannot
+   reach, so there was no way to adapt it to a narrow screen. It is class-based
+   now, and collapses to a single column with the navigation along the bottom. */
+.app-header{background:${T.card};border-bottom:1px solid ${T.border};padding:0 20px;display:flex;
+  align-items:center;justify-content:space-between;gap:12px;height:52px;position:sticky;top:0;z-index:100}
+.app-shell{display:flex}
+.app-sidebar{width:176px;background:${T.card};border-right:1px solid ${T.border};
+  min-height:calc(100vh - 52px);padding:14px 8px;position:sticky;top:52px;flex-shrink:0}
+.app-main{flex:1;padding:22px;overflow-x:hidden;min-width:0}
+
+@media (max-width:900px){
+  .app-header{padding:0 12px;gap:8px}
+  .app-main{padding:16px 12px 84px}
+  /* Navigation becomes a bar pinned to the bottom, where a thumb can reach it. */
+  .app-sidebar{position:fixed;bottom:0;left:0;right:0;top:auto;width:auto;min-height:0;
+    display:flex;gap:4px;overflow-x:auto;padding:8px;z-index:90;
+    border-right:none;border-top:1px solid ${T.border}}
+  .app-sidebar .nav-item{width:auto;flex:0 0 auto;white-space:nowrap;padding:8px 12px}
+  /* The FY config summary is desktop-only detail; the bar has no room for it. */
+  .app-sidebar .sidebar-meta{display:none}
+  .stat-card{min-width:calc(50% - 6px)}
+  /* Financial-year tabs scroll sideways rather than stacking into a column
+     that pushes the whole dashboard down the page. */
+  .fy-tabs{flex-wrap:nowrap !important;overflow-x:auto;padding-bottom:2px}
+  .modal{padding:20px}
+}
+
+@media (max-width:560px){
+  .app-header{height:auto;padding:8px 12px;flex-wrap:wrap;position:static}
+  .app-header .header-actions{width:100%;justify-content:space-between}
+  .gauge-grid{grid-template-columns:1fr !important}
+  .gauge-grid > div:first-child{border-right:none !important;padding-right:0 !important;
+    border-bottom:1px solid ${T.border};padding-bottom:18px;margin-bottom:18px}
+  .gauge-grid > div:last-child{padding-left:0 !important}
+  .networth-grid{grid-template-columns:1fr !important}
+  .stat-card{min-width:100%}
+}
 `;
 
 export { T, CC, STYLES };

@@ -19,6 +19,39 @@ const useMoney = () => useContext(CurrencyContext);
 const CalendarContext = createContext(makeCalendar(LEGACY_EPOCH));
 const useCalendar = () => useContext(CalendarContext);
 
+// Dialog behaviour every modal needs and none of them had: Escape closes it,
+// focus moves inside on open and is kept there while it is up, and it returns
+// to whatever opened it on close. Spread the returned props onto the dialog.
+function useDialog(onClose) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const opener = document.activeElement;
+    const box = ref.current;
+    const focusable = () => [...(box?.querySelectorAll(
+      'button,[href],input,select,textarea,summary,[tabindex]:not([tabindex="-1"])') || [])]
+      .filter(el => !el.disabled && el.offsetParent !== null);
+
+    (focusable()[0] || box)?.focus?.();
+
+    const onKey = e => {
+      if (e.key === "Escape") { e.stopPropagation(); onClose?.(); return; }
+      if (e.key !== "Tab") return;
+      const items = focusable();
+      if (!items.length) return;
+      const firstEl = items[0], lastEl = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === firstEl) { e.preventDefault(); lastEl.focus(); }
+      else if (!e.shiftKey && document.activeElement === lastEl) { e.preventDefault(); firstEl.focus(); }
+    };
+    box?.addEventListener("keydown", onKey);
+    return () => {
+      box?.removeEventListener("keydown", onKey);
+      if (opener instanceof HTMLElement) opener.focus();
+    };
+  }, [onClose]);
+
+  return { ref, role: "dialog", "aria-modal": "true", tabIndex: -1 };
+}
+
 // Local state that follows a value derived from props, while still letting the
 // user override it until that derived value next changes. This is React's
 // "adjust state during render" pattern: a synchronising effect renders once
@@ -32,7 +65,7 @@ function useSyncedState(derived) {
 }
 
 // ─── REUSABLE ATOMS ───────────────────────────────────────────────────────────
-function NumInput({ value, onChange, className = "inp inp-num", disabled }) {
+function NumInput({ value, onChange, className = "inp inp-num", disabled, label }) {
   const { separators } = useMoney();
   const display = value != null && value !== 0 ? String(value) : "";
   const [raw, setRaw]       = useState(display);
@@ -67,6 +100,7 @@ function NumInput({ value, onChange, className = "inp inp-num", disabled }) {
         type="text"
         className={className}
         value={raw}
+        aria-label={label}
         disabled={disabled}
         onChange={e => setRaw(e.target.value)}
         onFocus={() => setFocus(true)}
@@ -98,7 +132,7 @@ function NumInput({ value, onChange, className = "inp inp-num", disabled }) {
 }
 
 // Compact formula-aware cell for the baseline editor grid
-function FormulaCell({ value, onCommit, placeholder, style }) {
+function FormulaCell({ value, onCommit, placeholder, style, label }) {
   const { separators } = useMoney();
   const display = value != null && value !== "" && value !== 0 ? String(value) : "";
   const [raw, setRaw]       = useState(display);
@@ -123,7 +157,7 @@ function FormulaCell({ value, onCommit, placeholder, style }) {
 
   return (
     <div style={{ position:"relative", display:"inline-block" }}>
-      <input className="bl-cell" type="text" value={raw} placeholder={placeholder || ""}
+      <input className="bl-cell" type="text" value={raw} placeholder={placeholder || ""} aria-label={label}
         style={{ ...style, ...(focused && (formula || !valid) ? { borderColor: valid ? T.accent : T.danger } : {}) }}
         onChange={e => setRaw(e.target.value)}
         onFocus={() => setFocus(true)}
@@ -164,7 +198,7 @@ function FYToolbar({ fyStart, monthIdx, totalMonths = 48, selectedFY, onSelectFY
   const fys = useMemo(() => getAllFYs(fyStart, totalMonths), [getAllFYs, fyStart, totalMonths]);
   return (
     <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", marginBottom:18, padding:"10px 14px", background:T.inputBg, borderRadius:10, border:`1px solid ${T.border}` }}>
-      <div style={{ display:"flex", gap:5, flexWrap:"wrap", flex:1 }}>
+      <div className="fy-tabs" style={{ display:"flex", gap:5, flexWrap:"wrap", flex:1 }}>
         {fys.map(f => (
           <button key={f.year} className={`fy-tab${selectedFY === f.year ? " active" : ""}`} onClick={() => onSelectFY(f.year)}>
             {fyLabel(f.year, fyStart)}
@@ -182,6 +216,7 @@ function FYToolbar({ fyStart, monthIdx, totalMonths = 48, selectedFY, onSelectFY
 
 // ─── FY SETTINGS MODAL ───────────────────────────────────────────────────────
 function FYSettingsModal({ fyStart, totalMonths, onSave, onClose, onAddEarlier }) {
+  const dialog = useDialog(onClose);
   const { MONTHS, getAllFYs } = useCalendar();
   const [s, setS] = useState(fyStart);
   // Follows the prop, so adding an earlier year updates the open dialog too.
@@ -195,7 +230,7 @@ function FYSettingsModal({ fyStart, totalMonths, onSave, onClose, onAddEarlier }
 
   return (
     <div className="modal-bg" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal">
+      <div {...dialog} aria-label="Financial year settings" className="modal">
         <div style={{ fontFamily:"'Playfair Display'", fontSize:18, fontWeight:600, marginBottom:16 }}>Financial Year Settings</div>
 
         {/* FY Start Month */}
@@ -275,6 +310,7 @@ function FYSettingsModal({ fyStart, totalMonths, onSave, onClose, onAddEarlier }
 
 // ─── CURRENCY MODAL ──────────────────────────────────────────────────────────
 function CurrencyModal({ current, onSave, onClose }) {
+  const dialog = useDialog(onClose);
   const [search, setSearch] = useState("");
   const [sel, setSel] = useState(current.code);
   const filtered = useMemo(() => {
@@ -284,7 +320,7 @@ function CurrencyModal({ current, onSave, onClose }) {
   const chosen = CURRENCIES.find(c => c.code === sel) || CURRENCIES[0];
   return (
     <div className="modal-bg" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal" style={{ width:560 }}>
+      <div {...dialog} aria-label="Choose currency" className="modal" style={{ width:560 }}>
         <div style={{ fontFamily:"'Playfair Display'", fontSize:18, fontWeight:600, marginBottom:6 }}>Choose Currency</div>
         <div style={{ fontSize:13, color:T.sub, marginBottom:16 }}>All amounts across the app will display in the selected currency.</div>
         {/* Search */}
@@ -469,10 +505,11 @@ function SaveStatus({ state, savedAt, onSaveNow }) {
 
 // ─── BACKUP & RESTORE ────────────────────────────────────────────────────────
 function DataModal({ userName, onExport, onImport, importState, onClose }) {
+  const dialog = useDialog(onClose);
   const fileRef = useRef(null);
   return (
     <div className="modal-bg" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal">
+      <div {...dialog} aria-label="Back up or restore your data" className="modal">
         <div style={{ fontFamily:"'Playfair Display'", fontSize:18, fontWeight:600, marginBottom:6 }}>Your Data</div>
         <div style={{ fontSize:13, color:T.sub, marginBottom:18 }}>
           Everything you enter is stored in this browser only — it never reaches a server.
@@ -520,9 +557,10 @@ function DataModal({ userName, onExport, onImport, importState, onClose }) {
 // Previously this case silently discarded everything; nothing is touched now
 // until the user chooses, and a backup is written before anything is erased.
 function VersionConflictModal({ found, onBackup, onLoadAnyway, onDiscard }) {
+  const dialog = useDialog(undefined);
   return (
     <div className="modal-bg">
-      <div className="modal">
+      <div {...dialog} aria-label="Data from a different version" className="modal">
         <div style={{ fontFamily:"'Playfair Display'", fontSize:18, fontWeight:600, marginBottom:6 }}>
           This browser holds data from a different version
         </div>
@@ -553,6 +591,7 @@ function VersionConflictModal({ found, onBackup, onLoadAnyway, onDiscard }) {
 // `kinds` is passed for savings only: each category is a pot or an investment,
 // and the dashboard's two gauges split on that rather than on the name.
 function CategoryModal({ title, streams, kinds, onSave, onClose }) {
+  const dialog = useDialog(onClose);
   const [list, setList] = useState([...streams]);
   // Tracks each current label back to the name its data is stored under, so the
   // save handler can move history across a rename.
@@ -579,7 +618,7 @@ function CategoryModal({ title, streams, kinds, onSave, onClose }) {
   };
   return (
     <div className="modal-bg" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal">
+      <div {...dialog} aria-label="Manage categories" className="modal">
         <div style={{ fontFamily:"'Playfair Display'", fontSize:18, fontWeight:600, marginBottom:18 }}>Manage {title} Categories</div>
         <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:20, maxHeight:300, overflowY:"auto" }}>
           {list.map(s => (
@@ -589,7 +628,7 @@ function CategoryModal({ title, streams, kinds, onSave, onClose }) {
                     onChange={e => setEditing(p => ({...p,[s]:e.target.value}))}
                     onKeyDown={e => { if(e.key==="Enter")rename(s,editing[s]); if(e.key==="Escape")setEditing(p=>{const c={...p};delete c[s];return c;}); }} />
                   <button className="btn btn-primary btn-sm" onClick={() => rename(s, editing[s])}>Save</button>
-                  <button className="btn btn-ghost btn-sm" onClick={() => setEditing(p=>{const c={...p};delete c[s];return c;})}>✕</button></>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setEditing(p=>{const c={...p};delete c[s];return c;})} aria-label="Cancel rename">✕</button></>
               ) : (
                 <><span style={{ flex:1, fontSize:13 }}>{s}</span>
                   {showKinds && (
@@ -602,8 +641,8 @@ function CategoryModal({ title, streams, kinds, onSave, onClose }) {
                       {kindOf(s) === "investment" ? "📈 Investment" : "🏦 Pot"}
                     </button>
                   )}
-                  <button className="btn-icon" onClick={() => setEditing(p=>({...p,[s]:s}))}>✎</button>
-                  <button className="btn-icon" style={{ color:T.danger }} onClick={() => remove(s)}>✕</button></>
+                  <button className="btn-icon" onClick={() => setEditing(p=>({...p,[s]:s}))} aria-label={`Rename ${s}`}>✎</button>
+                  <button className="btn-icon" style={{ color:T.danger }} onClick={() => remove(s)} aria-label={`Remove ${s}`}>✕</button></>
               )}
             </div>
           ))}
@@ -631,6 +670,7 @@ function CategoryModal({ title, streams, kinds, onSave, onClose }) {
 
 // ─── BASELINE EDITOR ─────────────────────────────────────────────────────────
 function BaselineEditorModal({ section, streams, data, fyStart, totalMonths, onSave, onClose }) {
+  const dialog = useDialog(onClose);
   const { MONTHS, getFYMonths, getAllFYs } = useCalendar();
   const { fmt } = useMoney();
   const fys = useMemo(() => getAllFYs(fyStart, totalMonths), [getAllFYs, fyStart, totalMonths]);
@@ -670,7 +710,7 @@ function BaselineEditorModal({ section, streams, data, fyStart, totalMonths, onS
 
   return (
     <div className="modal-bg" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal modal-wide">
+      <div {...dialog} aria-label="Edit baselines" className="modal modal-wide">
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
           <div style={{ fontFamily:"'Playfair Display'", fontSize:17, fontWeight:600 }}>Edit {section} Baselines</div>
           <div style={{ display:"flex", gap:6 }}>
@@ -1023,7 +1063,7 @@ function WeeklyEntryTable({ streams, weeklyData, baselineData, forecastData, mon
                           ? <span style={{ fontSize:11, color:T.accent, cursor:"default" }} title={WEEKS.filter(w=>hasNote(s,w)).map(w=>`Wk${w}: ${getNote(s,w)}`).join("\n")}>
                               📝 {noteCount}
                             </span>
-                          : <span style={{ fontSize:11, color:T.border }}>—</span>}
+                          : <span style={{ fontSize:11, color:T.sub }}>—</span>}
                       </td>
                     )}
                   </tr>
@@ -1085,11 +1125,11 @@ function WeeklyEntryTable({ streams, weeklyData, baselineData, forecastData, mon
                                 color: note ? T.text : T.sub, fontFamily:"'DM Sans'",
                                 maxWidth:240, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
                                 textAlign:"left", transition:"border-color .15s" }}>
-                              {note || <span style={{ color:T.border }}>+ Add note</span>}
+                              {note || <span style={{ color:T.sub }}>+ Add note</span>}
                             </button>
                           )}
                           {note && !isExpanded && (
-                            <button className="btn-icon" style={{ color:T.border, fontSize:12 }}
+                            <button className="btn-icon" style={{ color:T.sub, fontSize:12 }}
                               onClick={() => onUpdateNote(s, monthIdx, activeWeek, "")} title="Clear note">✕</button>
                           )}
                         </div>
@@ -1392,7 +1432,7 @@ function Dashboard({ monthIdx, fyStart, totalMonths, incomeStreams, savingsStrea
           {fyState === "past"    && <>{fyLabel(selFY, fyStart)} is complete · measured against the full year's baseline</>}
           {fyState === "future"  && <>{fyLabel(selFY, fyStart)} has not started · showing the plan, with nothing recorded yet</>}
         </div>
-        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:0 }}>
+        <div className="gauge-grid" style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:0 }}>
           <div style={{ display:"flex", flexDirection:"column", alignItems:"center", borderRight:`1px solid ${T.border}`, paddingRight:16 }}>
             <GaugeDial label="Savings" icon="🏦" actual={savYTD} target={savDue} annual={savTgt} color={T.success}
               sub={pureStreams.join(" · ") || "No savings pots — mark one in Categories"}/>
@@ -1482,7 +1522,7 @@ function IncomePage({ monthIdx, fyStart, totalMonths, streams, setStreams, basel
                       <div key={`${s}-${mi}`} style={{ display:"flex", alignItems:"baseline", gap:10, padding:"8px 12px", background:T.inputBg, borderRadius:8 }}>
                         <span style={{ fontSize:12, color:T.sub, minWidth:72 }}>{MONTHS[mi]?.short}</span>
                         <span style={{ fontSize:13, color:T.success, fontWeight:600, minWidth:68 }}>{fmt(monthlyVal(actualData,s,mi))}</span>
-                        <span style={{ fontSize:12, color:T.sub, flex:1 }}>{note || <em style={{ color:T.border }}>No note</em>}</span>
+                        <span style={{ fontSize:12, color:T.sub, flex:1 }}>{note || <em style={{ color:T.sub }}>No note</em>}</span>
                       </div>
                     );
                   })
@@ -1548,10 +1588,10 @@ function IncomePage({ monthIdx, fyStart, totalMonths, streams, setStreams, basel
                               color: note ? T.text : T.sub, fontFamily:"'DM Sans'",
                               maxWidth:240, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
                               textAlign:"left", transition:"border-color .15s" }}>
-                            {note || <span style={{ color:T.border }}>+ Add tag</span>}
+                            {note || <span style={{ color:T.sub }}>+ Add tag</span>}
                           </button>
                           {note && (
-                            <button className="btn-icon" style={{ color:T.border, fontSize:12 }}
+                            <button className="btn-icon" style={{ color:T.sub, fontSize:12 }}
                               onClick={() => onUpdateIncomeNote(s, monthIdx, "")} title="Clear">✕</button>
                           )}
                         </div>
@@ -1719,7 +1759,7 @@ function NetWorthPage({ netWorth, assets, setAssets, monthIdx, fyStart, totalMon
         Showing <strong style={{ color:T.accent }}>{MONTHS[monthIdx]?.label}</strong>. Enter a figure whenever you
         check a balance — months in between carry the last one forward.
       </div>
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
+      <div className="networth-grid" style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 }}>
         <div className="card" style={{ padding:20 }}>
           <div className="sl" style={{ marginBottom:14 }}>{MONTHS[monthIdx]?.label}</div>
           <table>
@@ -1849,7 +1889,7 @@ function MoneyOwedPage({ rows, onUpdate }) {
                   <td><span style={{color:outstanding(r)<=0?T.success:isOverdue(r)?T.danger:T.warning,fontWeight:600,fontSize:13}}>
                     {fmt(outstanding(r))}{isOverdue(r) && <span title="Past its due date"> ⚠</span>}
                   </span></td>
-                  <td><button className="btn-icon" style={{color:T.danger}} onClick={()=>onUpdate(rows.filter((_,j)=>j!==i))}>✕</button></td>
+                  <td><button className="btn-icon" style={{color:T.danger}} onClick={()=>onUpdate(rows.filter((_,j)=>j!==i))} aria-label={`Remove ${r.name || "this loan"}`}>✕</button></td>
                 </tr>
               ))}
               <tr className="total-row">
@@ -2731,16 +2771,16 @@ function PennywiseApp() {
       )}
 
       {/* Header */}
-      <div style={{ background:T.card, borderBottom:`1px solid ${T.border}`, padding:"0 20px", display:"flex", alignItems:"center", justifyContent:"space-between", height:52, position:"sticky", top:0, zIndex:100 }}>
+      <header className="app-header">
         <div style={{ fontFamily:"'Playfair Display'", fontSize:17, fontWeight:600, color:T.accent }}>◈ Pennywise
           {userName && <span style={{ fontFamily:"'DM Sans'", fontSize:12, fontWeight:400, color:T.sub, marginLeft:10 }}>· {userName}</span>}
         </div>
         <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-          <button className="month-btn" onClick={()=>setMonthIdx(Math.max(0,monthIdx-1))}>‹</button>
+          <button className="month-btn" onClick={()=>setMonthIdx(Math.max(0,monthIdx-1))} aria-label="Previous month">‹</button>
           <div style={{ fontSize:14, fontWeight:600, minWidth:104, textAlign:"center" }}>{calendar.MONTHS[monthIdx]?.label}</div>
-          <button className="month-btn" onClick={()=>setMonthIdx(Math.min(totalMonths-1,monthIdx+1))}>›</button>
+          <button className="month-btn" onClick={()=>setMonthIdx(Math.min(totalMonths-1,monthIdx+1))} aria-label="Next month">›</button>
         </div>
-        <div style={{ display:"flex", gap:8 }}>
+        <div className="header-actions" style={{ display:"flex", gap:8, alignItems:"center" }}>
           <button className="btn btn-ghost btn-sm" onClick={()=>setCurrencyOpen(true)} title="Change currency" style={{ gap:5 }}>
             <span>{flagEmoji(currency.locale)}</span> {currency.code}
           </button>
@@ -2748,17 +2788,18 @@ function PennywiseApp() {
           <button className="btn btn-ghost btn-sm" onClick={()=>{setImportState(null);setDataModalOpen(true);}} title="Back up or restore your data">⇅ Backup</button>
           <SaveStatus state={saveState} savedAt={savedAt} onSaveNow={saveNow}/>
         </div>
-      </div>
+      </header>
 
-      <div style={{ display:"flex" }}>
+      <div className="app-shell">
         {/* Sidebar */}
-        <div style={{ width:176, background:T.card, borderRight:`1px solid ${T.border}`, minHeight:"calc(100vh - 52px)", padding:"14px 8px", position:"sticky", top:52, flexShrink:0 }}>
+        <nav className="app-sidebar" aria-label="Sections">
           {navItems.map(n=>(
-            <div key={n.key} className={`nav-item${page===n.key?" active":""}`} onClick={()=>setPage(n.key)}>
-              <span style={{ fontSize:14, width:18, textAlign:"center" }}>{n.icon}</span>{n.label}
-            </div>
+            <button key={n.key} className={`nav-item${page===n.key?" active":""}`} onClick={()=>setPage(n.key)}
+              aria-current={page===n.key ? "page" : undefined}>
+              <span aria-hidden="true" style={{ fontSize:14, width:18, textAlign:"center" }}>{n.icon}</span>{n.label}
+            </button>
           ))}
-          <div style={{ margin:"16px 6px 0", borderTop:`1px solid ${T.border}`, paddingTop:12 }}>
+          <div className="sidebar-meta" style={{ margin:"16px 6px 0", borderTop:`1px solid ${T.border}`, paddingTop:12 }}>
             <div style={{ fontSize:10, color:T.sub, textTransform:"uppercase", letterSpacing:".08em", fontWeight:600, marginBottom:8, paddingLeft:8 }}>FY Config</div>
             <div style={{ fontSize:11, color:T.sub, padding:"3px 8px" }}>Start: <span style={{ color:T.accent }}>{MONTH_NAMES[fyStart]}</span></div>
             <div style={{ fontSize:11, color:T.sub, padding:"3px 8px" }}>End: <span style={{ color:T.accent }}>{MONTH_NAMES[(fyStart+11)%12]}</span></div>
@@ -2767,16 +2808,16 @@ function PennywiseApp() {
               <div style={{ fontSize:10, color:T.sub, textTransform:"uppercase", letterSpacing:".08em", fontWeight:600, marginBottom:6, paddingLeft:2 }}>Categories</div>
               {[["Income",incomeStreams],["Savings",savingsStreams],["Exp.",expStreams]].map(([l,arr])=>(
                 <div key={l} style={{ fontSize:11, color:T.sub, padding:"3px 2px", display:"flex", justifyContent:"space-between" }}>
-                  <span>{l}</span><span style={{ color:T.border }}>{arr.length}</span>
+                  <span>{l}</span><span style={{ color:T.sub }}>{arr.length}</span>
                 </div>
               ))}
             </div>
           </div>
-        </div>
+        </nav>
 
         {/* Main. Keyed on the page so switching away from a broken one clears
             the error, and scoped so the header and sidebar survive it. */}
-        <div style={{ flex:1, padding:"22px", overflowX:"hidden" }}>
+        <main className="app-main">
           <ErrorBoundary key={page} scope="page" onDismiss={()=>setPage("dashboard")}>
           {page==="dashboard"&&<Dashboard monthIdx={monthIdx} fyStart={fyStart} totalMonths={totalMonths} incomeStreams={incomeStreams} savingsStreams={savingsStreams} expStreams={expStreams}
             baselineIncome={baselineIncome} baselineSavings={baselineSavings} baselineExp={baselineExp}
@@ -2809,7 +2850,7 @@ function PennywiseApp() {
             baselineIncome={baselineIncome} baselineSavings={baselineSavings} baselineExp={baselineExp}
             onEditBaseline={openBaselineEditor}/>}
           </ErrorBoundary>
-        </div>
+        </main>
       </div>
     </div>
     </CalendarContext.Provider>
