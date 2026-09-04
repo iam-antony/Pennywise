@@ -2,7 +2,9 @@
 
 A clean, private personal finance tracker. Track income, savings, and spending against your goals — with a guided setup, financial-year views, a Sankey income-flow diagram, and per-category notes.
 
-**This is the public "blank slate" build:** it starts in **January 2026** with no pre-filled data. Every visitor sets up their own profile and all their data stays in *their own browser* (via `localStorage`) — nothing is sent to a server.
+**This is the public "blank slate" build:** every visitor sets up their own profile, and all of their data stays in *their own browser* (via `localStorage`).
+
+**Nothing is sent to a server, and that is meant literally.** Once the page has loaded, the app makes no network requests at all — no analytics, no database, no login. The fonts are served from the app itself rather than fetched from Google, which would otherwise have disclosed each reader’s IP address and referrer on every visit.
 
 ---
 
@@ -62,6 +64,8 @@ npm run preview
 ## A few things worth knowing
 
 - **Data is per-browser.** Because the app uses `localStorage`, each friend's data lives only on the device/browser they use. Clearing browser data, or using a different device, starts fresh. This keeps everything private and requires no database or login.
+- **Back it up.** The **⇅ Backup** button in the header writes the whole profile out as a JSON file, and restores one. That file is how you move between devices, and the only protection against a cleared cache. Work saves itself a moment after you stop typing — the dot in the header says where things stand.
+- **Fonts are bundled.** `public/fonts` holds the Latin subsets of DM Sans and Playfair Display. To refresh them, download the woff2 files named in the `@font-face` rules at the top of `src/theme.js`.
 - **Want cross-device sync or accounts later?** That needs a backend. Supabase (free tier) is the easiest path — it provides a database + authentication. This is a larger change; the current build is intentionally simple and serverless.
 - **Custom domain.** In the Vercel dashboard, open your project → **Settings → Domains** to attach a domain like `pennywise.yourname.com`.
 - **The build warning about chunk size** (>500 kB) is harmless — it's just a suggestion. The app gzips to ~185 kB and loads quickly.

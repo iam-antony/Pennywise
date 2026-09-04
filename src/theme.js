@@ -11,9 +11,33 @@ const T = {
 const CC = ["#d4a853","#7eb3f5","#52c47a","#f5a623","#a87fd4","#5cc8d4","#f06464","#f5c842","#8093f1","#e07070","#7ab87a","#f09d6a","#c4d4a0","#a0c4d4"];
 
 const STYLES = `
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=DM+Sans:wght@300;400;500;600&display=swap');
+/* Fonts are served from this app, not fetched from Google. The README says
+   nothing leaves the browser, and a third-party font request would have made
+   that untrue — it discloses the reader's IP and referrer on every load.
+   Latin subsets only; see public/fonts. */
+@font-face{font-family:'DM Sans';font-style:normal;font-weight:300;font-display:swap;
+  src:url('/fonts/dm-sans-300.woff2') format('woff2');
+  unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD}
+@font-face{font-family:'DM Sans';font-style:normal;font-weight:400;font-display:swap;
+  src:url('/fonts/dm-sans-400.woff2') format('woff2');
+  unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD}
+@font-face{font-family:'DM Sans';font-style:normal;font-weight:500;font-display:swap;
+  src:url('/fonts/dm-sans-500.woff2') format('woff2');
+  unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD}
+@font-face{font-family:'DM Sans';font-style:normal;font-weight:600;font-display:swap;
+  src:url('/fonts/dm-sans-600.woff2') format('woff2');
+  unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD}
+@font-face{font-family:'Playfair Display';font-style:normal;font-weight:500;font-display:swap;
+  src:url('/fonts/playfair-display-500.woff2') format('woff2');
+  unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD}
+@font-face{font-family:'Playfair Display';font-style:normal;font-weight:600;font-display:swap;
+  src:url('/fonts/playfair-display-600.woff2') format('woff2');
+  unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD}
+@font-face{font-family:'Playfair Display';font-style:normal;font-weight:700;font-display:swap;
+  src:url('/fonts/playfair-display-700.woff2') format('woff2');
+  unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-body{background:${T.bg};color:${T.text};font-family:'DM Sans',sans-serif}
+body{background:${T.bg};color:${T.text};font-family:'DM Sans',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif}
 ::-webkit-scrollbar{width:5px;height:5px} ::-webkit-scrollbar-thumb{background:${T.border};border-radius:3px}
 input[type=number]{-moz-appearance:textfield} input::-webkit-outer-spin-button,input::-webkit-inner-spin-button{-webkit-appearance:none}
 .fade{animation:fi .22s ease} @keyframes fi{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
@@ -25,12 +49,12 @@ input[type=number]{-moz-appearance:textfield} input::-webkit-outer-spin-button,i
 :focus-visible{outline:2px solid ${T.accent};outline-offset:2px;border-radius:4px}
 .modal:focus{outline:none}
 @media (prefers-reduced-motion:reduce){*{animation-duration:.01ms !important;transition-duration:.01ms !important}}
-.btn{cursor:pointer;border:none;border-radius:8px;font-family:'DM Sans',sans-serif;font-weight:500;font-size:13px;transition:all .18s;display:inline-flex;align-items:center;gap:6px}
+.btn{cursor:pointer;border:none;border-radius:8px;font-family:'DM Sans',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-weight:500;font-size:13px;transition:all .18s;display:inline-flex;align-items:center;gap:6px}
 .btn-primary{background:${T.accent};color:#0d1b2a;padding:8px 18px} .btn-primary:hover{background:#e8c070;transform:translateY(-1px)}
 .btn-ghost{background:transparent;border:1px solid ${T.border};color:${T.sub};padding:7px 14px} .btn-ghost:hover{border-color:${T.accent};color:${T.accent}}
 .btn-sm{padding:5px 12px;font-size:12px} .btn-xs{padding:3px 8px;font-size:11px}
 .btn-icon{background:transparent;border:none;cursor:pointer;color:${T.sub};padding:4px 6px;border-radius:4px;font-size:14px;transition:all .15s} .btn-icon:hover{color:${T.text};background:${T.border}}
-.inp{background:${T.inputBg};border:1px solid ${T.border};color:${T.text};font-family:'DM Sans',sans-serif;font-size:13px;border-radius:6px;padding:6px 10px;transition:border-color .15s}
+.inp{background:${T.inputBg};border:1px solid ${T.border};color:${T.text};font-family:'DM Sans',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;font-size:13px;border-radius:6px;padding:6px 10px;transition:border-color .15s}
 .inp:focus{outline:none;border-color:${T.accent};box-shadow:0 0 0 2px rgba(212,168,83,.1)}
 .inp-num{width:80px;text-align:right;padding:5px 8px} .inp-sm{width:62px;text-align:right;padding:4px 6px;font-size:12px}
 table{width:100%;border-collapse:collapse}
