@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, createContext, useContext } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } from "react";
 import { ComposedChart, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import { MAX_MONTHS, MONTH_NAMES, WEEKS, LEGACY_EPOCH, makeCalendar, fyLabel,
@@ -6,7 +6,7 @@ import { MAX_MONTHS, MONTH_NAMES, WEEKS, LEGACY_EPOCH, makeCalendar, fyLabel,
 import { CURRENCIES, flagEmoji } from "./lib/currencies.js";
 import { makeFormatters } from "./lib/money.js";
 import { isInvestment, inferSavingsKind, withSavingsKinds, netWorthAt, netWorthTotalAt, migrateNetWorth, shiftAllArrays, shiftAllWeekly, shiftNotes, wouldLoseData, DEFAULT_INCOME_STREAMS, DEFAULT_SAVINGS_STREAMS, DEFAULT_EXP_STREAMS, makeBaselineIncome, makeBaselineSavings, makeBaselineExp, NET_WORTH_ASSETS, blankWeekly, weeklyTotal, allStreamsWeekly, monthlyVal, allMonthly, applyStreams, applyNotes } from "./lib/data.js";
-import { load, save } from "./lib/storage.js";
+import { save, readAll, writeAll, clearAll, classifyVersion, buildBackup, parseBackup, backupFilename, DATA_VER } from "./lib/storage.js";
 import { isFormula, parseEntry } from "./lib/expr.js";
 import { T, CC, STYLES } from "./theme.js";
 
@@ -328,6 +328,89 @@ function CurrencyModal({ current, onSave, onClose }) {
     </div>
   );
 }
+// ─── BACKUP & RESTORE ────────────────────────────────────────────────────────
+function DataModal({ userName, onExport, onImport, importState, onClose }) {
+  const fileRef = useRef(null);
+  return (
+    <div className="modal-bg" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal">
+        <div style={{ fontFamily:"'Playfair Display'", fontSize:18, fontWeight:600, marginBottom:6 }}>Your Data</div>
+        <div style={{ fontSize:13, color:T.sub, marginBottom:18 }}>
+          Everything you enter is stored in this browser only — it never reaches a server.
+          That keeps it private, but it also means clearing your browser data, or switching
+          to another device, starts you from nothing. A backup file is the way across.
+        </div>
+
+        <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:18 }}>
+          <button className="btn btn-primary" style={{ justifyContent:"center", padding:"11px 18px" }} onClick={onExport}>
+            ↓ Download a backup
+          </button>
+          <button className="btn btn-ghost" style={{ justifyContent:"center", padding:"10px 18px" }}
+            onClick={() => fileRef.current?.click()}>
+            ↑ Restore from a backup file
+          </button>
+          <input ref={fileRef} type="file" accept="application/json,.json" style={{ display:"none" }}
+            onChange={e => { const f = e.target.files?.[0]; e.target.value = ""; if (f) onImport(f); }} />
+        </div>
+
+        {importState?.error && (
+          <div style={{ padding:"10px 14px", background:"rgba(240,100,100,.08)", border:`1px solid rgba(240,100,100,.3)`,
+            borderRadius:8, fontSize:12, color:T.danger, marginBottom:16 }}>{importState.error}</div>
+        )}
+        {importState?.ok && (
+          <div style={{ padding:"10px 14px", background:"rgba(82,196,122,.08)", border:`1px solid rgba(82,196,122,.3)`,
+            borderRadius:8, fontSize:12, color:T.success, marginBottom:16 }}>
+            Restored {importState.count} fields
+            {importState.exportedAt ? ` from the backup saved ${new Date(importState.exportedAt).toLocaleString()}` : ""}.
+          </div>
+        )}
+
+        <div style={{ fontSize:11, color:T.sub, marginBottom:18 }}>
+          The backup is a plain JSON file{userName ? `, named after your profile` : ""}. Restoring replaces
+          what is in this browser, and downloads what is there now first.
+        </div>
+        <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
+          <button className="btn btn-ghost" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Shown when storage holds a profile written by a build this one does not know.
+// Previously this case silently discarded everything; nothing is touched now
+// until the user chooses, and a backup is written before anything is erased.
+function VersionConflictModal({ found, onBackup, onLoadAnyway, onDiscard }) {
+  return (
+    <div className="modal-bg">
+      <div className="modal">
+        <div style={{ fontFamily:"'Playfair Display'", fontSize:18, fontWeight:600, marginBottom:6 }}>
+          This browser holds data from a different version
+        </div>
+        <div style={{ fontSize:13, color:T.sub, marginBottom:8 }}>
+          The saved profile says it was written by <strong style={{ color:T.accent }}>{String(found)}</strong>,
+          which this version of Pennywise does not recognise. Nothing has been changed or deleted.
+        </div>
+        <div style={{ fontSize:13, color:T.sub, marginBottom:20 }}>
+          Download a backup first — that file can be restored into any version that understands it.
+        </div>
+        <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+          <button className="btn btn-primary" style={{ justifyContent:"center", padding:"11px 18px" }} onClick={onBackup}>
+            ↓ Download a backup
+          </button>
+          <button className="btn btn-ghost" style={{ justifyContent:"center", padding:"10px 18px" }} onClick={onLoadAnyway}>
+            Try to open it anyway
+          </button>
+          <button className="btn btn-ghost" style={{ justifyContent:"center", padding:"10px 18px", borderColor:T.danger, color:T.danger }}
+            onClick={onDiscard}>
+            Start fresh — erases this profile
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // `kinds` is passed for savings only: each category is a pot or an investment,
 // and the dashboard's two gauges split on that rather than on the name.
 function CategoryModal({ title, streams, kinds, onSave, onClose }) {
@@ -2101,54 +2184,63 @@ export default function App() {
   const [moneyOwed, setMoneyOwed] = useState([]);
   const [savingsGoal, setSavingsGoal] = useState(0);
 
-  // Load from storage (overrides seeds if data already saved)
-  // DATA_VER: bump this whenever historical seed data is replaced wholesale
-  const DATA_VER = "pennywise.public.v1"; // blank slate, Jan 2026 start
+  // Backup / restore, and the prompt shown when storage holds a version this
+  // build does not recognise.
+  const [dataModalOpen, setDataModalOpen] = useState(false);
+  const [versionConflict, setVersionConflict] = useState(null);
+
+  // Adopt a set of stored values into React state. Shared by the initial load
+  // and by restoring a backup, so both go through exactly the same migrations.
+  const adoptStored = useCallback(v => {
+    if (v.done) setOnboarded(true);
+    if (v.name) setUserName(v.name);
+    if (v.goal !== null && v.goal !== undefined) setSavingsGoal(v.goal);
+
+    const ep = v.epoch && Number.isInteger(v.epoch.year) ? v.epoch : LEGACY_EPOCH;
+    const here = Math.max(0, Math.min(monthIndexOf(ep), MAX_MONTHS - 1));
+    setEpoch(ep);
+    setMonthIdx(here);
+    if (v.fy !== null && v.fy !== undefined) setFYStart(v.fy);
+    if (v.tm !== null && v.tm !== undefined) setTotalMonths(v.tm);
+    if (v.curr) { const found = CURRENCIES.find(c => c.code === v.curr); if (found) setCurrency(found); }
+    if (v.cats) { if(v.cats.income)setIncomeStreams(v.cats.income); if(v.cats.savings)setSavingsStreams(v.cats.savings); if(v.cats.exp)setExpStreams(v.cats.exp); }
+    // v1 profiles have no stored kinds; derive them once from the old name test
+    // so behaviour is unchanged, then keep them explicit.
+    setSavingsTypes(withSavingsKinds(v.cats?.savings || DEFAULT_SAVINGS_STREAMS, v.savTypes || {}));
+    if (v.bInc)   setBaselineIncome(v.bInc);
+    if (v.bSav)   setBaselineSavings(v.bSav);
+    if (v.bExp)   setBaselineExp(v.bExp);
+    if (v.incAct) setIncomeActual(v.incAct);
+    if (v.savFc)  setSavingsForecast(v.savFc);
+    if (v.savWk)  setSavingsWeekly(v.savWk);
+    if (v.expFc)  setExpForecast(v.expFc);
+    if (v.expWk)  setExpWeekly(v.expWk);
+    // v1 profiles hold one net worth figure per asset; convert to a series.
+    const nwAssets = Array.isArray(v.nwCats) && v.nwCats.length ? v.nwCats : NET_WORTH_ASSETS;
+    setNetWorthAssets(nwAssets);
+    setNetWorth(migrateNetWorth(v.nw || {}, nwAssets, here));
+    if (v.mo)    setMoneyOwed(v.mo);
+    if (v.expN)  setExpNotes(v.expN);
+    if (v.incN)  setIncomeNotes(v.incN);
+  }, []);
 
   useEffect(() => {
     (async () => {
-      const keys = ["fy","tm","curr","cats","bInc","bSav","bExp","incAct","savFc","savWk","expFc","expWk","nw","mo","expN","incN","dver","name","goal","done","savTypes","epoch","nwCats"];
-      const res = await Promise.all(keys.map(k => load(`bt3-${k}`, null)));
-      const [fy,tm,curr,cats,bInc,bSav,bExp,incAct,savFc,savWk,expFc,expWk,nw,mo,expN,incN,dver,uname,goal,done,savTypes,storedEpoch,nwCats] = res;
-
-      // Onboarding flag
-      if (done) { setOnboarded(true); }
-      if (uname) setUserName(uname);
-      if (goal !== null) setSavingsGoal(goal);
-
-      // If data version doesn't match, discard stale transactional data so
-      // the fresh seed functions above are used instead.
-      const freshSeed = dver !== DATA_VER;
-
-      const ep = storedEpoch && Number.isInteger(storedEpoch.year) ? storedEpoch : LEGACY_EPOCH;
-      setEpoch(ep);
-      setMonthIdx(Math.max(0, Math.min(monthIndexOf(ep), MAX_MONTHS - 1)));
-      if (fy !== null) setFYStart(fy);
-      if (tm !== null) setTotalMonths(tm);
-      if (curr) { const found = CURRENCIES.find(c => c.code === curr); if (found) setCurrency(found); }
-      if (cats) { if(cats.income)setIncomeStreams(cats.income); if(cats.savings)setSavingsStreams(cats.savings); if(cats.exp)setExpStreams(cats.exp); }
-      // Existing profiles have no stored kinds; derive them once from the old
-      // name test so behaviour is unchanged, then keep them explicit.
-      setSavingsTypes(withSavingsKinds(cats?.savings || DEFAULT_SAVINGS_STREAMS, savTypes || {}));
-      if (!freshSeed && bInc) setBaselineIncome(bInc);
-      if (!freshSeed && bSav) setBaselineSavings(bSav);
-      if (!freshSeed && bExp) setBaselineExp(bExp);
-      if (!freshSeed && incAct) setIncomeActual(incAct);
-      if (!freshSeed && savFc)  setSavingsForecast(savFc);
-      if (!freshSeed && savWk)  setSavingsWeekly(savWk);
-      if (!freshSeed && expFc)  setExpForecast(expFc);
-      if (!freshSeed && expWk)  setExpWeekly(expWk);
-      // Older profiles hold one figure per asset; convert to a per-month series.
-      const nwAssets = Array.isArray(nwCats) && nwCats.length ? nwCats : NET_WORTH_ASSETS;
-      setNetWorthAssets(nwAssets);
-      setNetWorth(migrateNetWorth(nw || {}, nwAssets, Math.max(0, Math.min(monthIndexOf(ep), MAX_MONTHS - 1))));
-      if (mo)     setMoneyOwed(mo);
-      if (!freshSeed && expN)   setExpNotes(expN);
-      if (!freshSeed && incN)   setIncomeNotes(incN);
+      const stored = await readAll();
+      // A version this build does not recognise used to mean "silently throw
+      // every figure away". Now nothing is touched until the user has been
+      // asked, and they are offered a backup before anything is discarded.
+      if (classifyVersion(stored.dver, stored.done) === "unknown") {
+        setVersionConflict({ found: stored.dver, values: stored });
+        setLoading(false);
+        setOnboardLoading(false);
+        return;
+      }
+      adoptStored(stored);
       setLoading(false);
       setOnboardLoading(false);
     })();
-  }, []);
+  }, [adoptStored]);
 
   // Called when user completes onboarding
   const handleOnboardingComplete = useCallback(async ({ name, currency: c, fyStart: fy, monthlyIncome: mInc, savingsGoal: goal, savingsCats, expCats }) => {
@@ -2242,6 +2334,65 @@ export default function App() {
     setExpNotes(n => shiftNotes(n, N));
     setIncomeNotes(n => shiftNotes(n, N));
   }, [incomeActual, savingsWeekly, expWeekly]);
+
+  // ─── Backup and restore ──────────────────────────────────────────────────
+  // Everything lives in this browser's storage, so a backup file is the only
+  // thing standing between a cleared cache and starting again from nothing.
+
+  // Write whatever is currently in storage out as a file. Returns the values
+  // written, so callers that are about to destroy something can back it up
+  // first and know it succeeded.
+  const downloadBackup = useCallback(async (values) => {
+    const v = values || await readAll();
+    const doc = buildBackup(v);
+    const url = URL.createObjectURL(new Blob([JSON.stringify(doc, null, 2)], { type: "application/json" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = backupFilename(v.name);
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    return v;
+  }, []);
+
+  const [importState, setImportState] = useState(null); // { error } | { ok, count, exportedAt }
+
+  // Restore from a file the user picked. The current profile is exported first,
+  // because this overwrites it.
+  const restoreBackup = useCallback(async file => {
+    setImportState(null);
+    let text;
+    try { text = await file.text(); }
+    catch { setImportState({ error: "That file could not be read." }); return; }
+
+    const parsed = parseBackup(text);
+    if (!parsed.ok) { setImportState({ error: parsed.error }); return; }
+
+    const current = await readAll();
+    if (current.done) {
+      if (!window.confirm(
+        `Restoring will replace the profile in this browser with the backup (${parsed.count} fields` +
+        `${parsed.exportedAt ? ", saved " + new Date(parsed.exportedAt).toLocaleString() : ""}).\n\n` +
+        `Your current profile will be downloaded as a backup first. Continue?`)) return;
+      await downloadBackup(current);
+    }
+
+    clearAll();
+    await writeAll({ ...parsed.values, dver: DATA_VER });
+    adoptStored(parsed.values);
+    setImportState({ ok: true, count: parsed.count, exportedAt: parsed.exportedAt });
+  }, [adoptStored, downloadBackup]);
+
+  // Deliberately discard the profile in storage — only ever reached from the
+  // version-conflict prompt, and only after a backup has been written.
+  const discardStored = useCallback(async values => {
+    await downloadBackup(values);
+    if (!window.confirm(
+      "A backup has been downloaded. Starting fresh will now erase the profile in this browser. Continue?")) return;
+    clearAll();
+    window.location.reload();
+  }, [downloadBackup]);
 
   const handleSave = useCallback(async () => {
     await Promise.all([
@@ -2355,6 +2506,21 @@ export default function App() {
       <div style={{ color:T.sub, fontSize:14 }}>Loading…</div>
     </div>
   );
+  // Storage holds a version this build does not know. Ask before doing
+  // anything — in particular, do not drop the user into onboarding as though
+  // they had no data, which is what silently discarding it used to look like.
+  if (versionConflict) return (
+    <div style={{ minHeight:"100vh", background:T.bg }}>
+      <style>{STYLES}</style>
+      <VersionConflictModal
+        found={versionConflict.found}
+        onBackup={() => downloadBackup(versionConflict.values)}
+        onLoadAnyway={() => { adoptStored(versionConflict.values); setVersionConflict(null); }}
+        onDiscard={() => discardStored(versionConflict.values)}
+      />
+    </div>
+  );
+
   if (!onboarded) return <Onboarding onComplete={handleOnboardingComplete} />;
 
   return (
@@ -2366,6 +2532,10 @@ export default function App() {
       {/* FY Settings Modal */}
       {fySettingsOpen && <FYSettingsModal fyStart={fyStart} totalMonths={totalMonths} onAddEarlier={addEarlierYear}
         onSave={(newFy, newTm)=>{setFYStart(newFy);setTotalMonths(newTm);setFYSettingsOpen(false);}} onClose={()=>setFYSettingsOpen(false)}/>}
+
+      {/* Backup & restore */}
+      {dataModalOpen && <DataModal userName={userName} importState={importState}
+        onExport={()=>downloadBackup()} onImport={restoreBackup} onClose={()=>setDataModalOpen(false)}/>}
 
       {/* Currency Modal */}
       {currencyOpen && <CurrencyModal current={currency} onSave={c=>{setCurrency(c);setCurrencyOpen(false);}} onClose={()=>setCurrencyOpen(false)}/>}
@@ -2398,6 +2568,7 @@ export default function App() {
             <span>{flagEmoji(currency.locale)}</span> {currency.code}
           </button>
           <button className="btn btn-ghost btn-sm" onClick={()=>setFYSettingsOpen(true)} title="Financial year settings">⚙ FY Settings</button>
+          <button className="btn btn-ghost btn-sm" onClick={()=>{setImportState(null);setDataModalOpen(true);}} title="Back up or restore your data">⇅ Data</button>
           <button className="btn btn-primary" onClick={handleSave} style={{ minWidth:88 }}>{saved?"✓ Saved":"Save All"}</button>
         </div>
       </div>
