@@ -82,6 +82,44 @@ tr:last-child td{border-bottom:none}
 .bl-cell{width:68px;text-align:right;background:${T.inputBg};border:1px solid transparent;color:${T.text};font-size:12px;border-radius:4px;padding:3px 6px;transition:border-color .15s}
 .bl-cell:focus{outline:none;border-color:${T.accent}}
 
+/* ─── FROZEN EDGE COLUMNS ──────────────────────────────────────────────────
+   Excel's split with fixed panes, on both edges: the category is pinned left
+   and the FY total pinned right, so the months scroll between them and you can
+   always see which row you are on and what it adds up to.
+
+   Each frozen cell needs an opaque background of its own, or the scrolling
+   columns show straight through it. The three surfaces are different colours,
+   and the header corners have to outrank both the sticky row and the sticky
+   column so nothing overlaps them at the intersections. */
+.sticky-col td:first-child,
+.sticky-col th:first-child{position:sticky;left:0;z-index:3;
+  box-shadow:1px 0 0 ${T.border}, 5px 0 7px -5px rgba(0,0,0,.5)}
+.sticky-col td:last-child,
+.sticky-col th:last-child{position:sticky;right:0;z-index:3;
+  box-shadow:-1px 0 0 ${T.border}, -5px 0 7px -5px rgba(0,0,0,.5)}
+.sticky-col tbody td:first-child,
+.sticky-col tbody td:last-child{background:${T.card}}
+.sticky-col thead th:first-child,
+.sticky-col thead th:last-child{background:${T.bg};z-index:4}
+/* The totals row tints itself with a translucent accent over the card. Both
+   frozen cells need that colour flattened, or months slide visibly beneath. */
+.sticky-col .total-row td:first-child,
+.sticky-col .total-row td:last-child{background:#1d2737}
+
+/* Two frozen columns, for the baseline editor: "Fill All" is used once per row
+   alongside the category, so it stays put with it rather than scrolling away.
+   The 160px offset is the category column's locked width — the header sets a
+   fixed width so a long category name cannot shift this out of alignment. */
+.sticky-col-2 td:nth-child(2),
+.sticky-col-2 th:nth-child(2){position:sticky;left:160px;z-index:3;
+  box-shadow:1px 0 0 ${T.border}, 5px 0 7px -5px rgba(0,0,0,.5)}
+.sticky-col-2 tbody td:nth-child(2){background:${T.card}}
+.sticky-col-2 thead th:nth-child(2){background:${T.bg};z-index:4}
+.sticky-col-2 .total-row td:nth-child(2){background:#1d2737}
+/* With two columns frozen the divider belongs after the second, not the first. */
+.sticky-col-2 td:first-child,
+.sticky-col-2 th:first-child{box-shadow:none}
+
 /* ─── SHELL ────────────────────────────────────────────────────────────────
    The shell was laid out with inline styles, which a media query cannot
    reach, so there was no way to adapt it to a narrow screen. It is class-based

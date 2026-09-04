@@ -727,13 +727,13 @@ function BaselineEditorModal({ section, streams, data, fyStart, totalMonths, onS
           </div>
         </div>
         <div style={{ overflowX:"auto" }}>
-          <table>
+          <table className="sticky-col sticky-col-2">
             <thead>
               <tr>
-                <th style={{ width:160 }}>Category</th>
+                <th style={{ width:160, minWidth:160, maxWidth:160 }}>Category</th>
                 <th style={{ color:T.warning, fontSize:10 }}>Fill All →</th>
                 {fyMonths.map(mi => <th key={mi} style={{ fontSize:11 }}>{MONTHS[mi]?.short}</th>)}
-                <th style={{ color:T.accent }}>FY Total</th>
+                <th style={{ color:T.accent, minWidth:96 }}>FY Total</th>
               </tr>
             </thead>
             <tbody>
@@ -965,12 +965,12 @@ function FYSummaryTable({ streams, fyMonths, baselineData, forecastData, weeklyD
 
   return (
     <div style={{ overflowX:"auto" }}>
-      <table>
+      <table className="sticky-col">
         <thead>
           <tr>
-            <th style={{ width:150 }}>Category</th>
+            <th style={{ width:150, minWidth:150 }}>Category</th>
             {fyMonths.map(mi=><th key={mi} style={{ fontSize:10 }}>{MONTHS[mi]?.short}</th>)}
-            <th style={{ color:T.accent }}>FY Total</th>
+            <th style={{ color:T.accent, minWidth:96 }}>FY Total</th>
           </tr>
         </thead>
         <tbody>
@@ -1936,11 +1936,11 @@ function BaselinePage({ monthIdx, fyStart, totalMonths, incomeStreams, savingsSt
               <button className="btn btn-ghost btn-sm" onClick={()=>onEditBaseline(title,streams,data)}>✎ Edit {title} Baselines</button>
             </div>
             <div style={{ overflowX:"auto" }}>
-              <table>
+              <table className="sticky-col">
                 <thead><tr>
-                  <th style={{ width:160 }}>Category</th>
+                  <th style={{ width:160, minWidth:160 }}>Category</th>
                   {fyMonths.map(mi=><th key={mi} style={{ fontSize:10 }}>{MONTHS[mi]?.short}</th>)}
-                  <th style={{ color:T.accent }}>FY Total</th>
+                  <th style={{ color:T.accent, minWidth:96 }}>FY Total</th>
                 </tr></thead>
                 <tbody>
                   {streams.map(s=>(
