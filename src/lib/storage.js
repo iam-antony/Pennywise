@@ -96,8 +96,25 @@ const clearAll = () => {
   }
 };
 
+// Write a backup out as a file. Deliberately standalone rather than a hook, so
+// the crash screen can call it: after a render error the React tree is not to
+// be trusted, but localStorage still holds everything that was saved.
+async function downloadBackupFile(values) {
+  const v = values || await readAll();
+  const url = URL.createObjectURL(
+    new Blob([JSON.stringify(buildBackup(v), null, 2)], { type: "application/json" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = backupFilename(v.name);
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  return v;
+}
+
 export {
   PREFIX, STORAGE_KEYS, DATA_VER, KNOWN_VERSIONS, classifyVersion,
   load, save, readAll, writeAll, clearAll,
-  buildBackup, parseBackup, backupFilename,
+  buildBackup, parseBackup, backupFilename, downloadBackupFile,
 };

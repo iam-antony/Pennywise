@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext, Component } from "react";
 import { ComposedChart, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import { MAX_MONTHS, MONTH_NAMES, WEEKS, LEGACY_EPOCH, makeCalendar, fyLabel,
@@ -6,7 +6,7 @@ import { MAX_MONTHS, MONTH_NAMES, WEEKS, LEGACY_EPOCH, makeCalendar, fyLabel,
 import { CURRENCIES, flagEmoji } from "./lib/currencies.js";
 import { makeFormatters } from "./lib/money.js";
 import { isInvestment, inferSavingsKind, withSavingsKinds, netWorthAt, netWorthTotalAt, migrateNetWorth, shiftAllArrays, shiftAllWeekly, shiftNotes, wouldLoseData, DEFAULT_INCOME_STREAMS, DEFAULT_SAVINGS_STREAMS, DEFAULT_EXP_STREAMS, makeBaselineIncome, makeBaselineSavings, makeBaselineExp, NET_WORTH_ASSETS, blankWeekly, weeklyTotal, allStreamsWeekly, monthlyVal, allMonthly, applyStreams, applyNotes } from "./lib/data.js";
-import { save, readAll, writeAll, clearAll, classifyVersion, buildBackup, parseBackup, backupFilename, DATA_VER } from "./lib/storage.js";
+import { save, readAll, writeAll, clearAll, classifyVersion, parseBackup, downloadBackupFile, DATA_VER } from "./lib/storage.js";
 import { isFormula, parseEntry } from "./lib/expr.js";
 import { T, CC, STYLES } from "./theme.js";
 
@@ -328,6 +328,145 @@ function CurrencyModal({ current, onSave, onClose }) {
     </div>
   );
 }
+// ─── CRASH RECOVERY ──────────────────────────────────────────────────────────
+// Without this, any render exception unmounted the whole tree to a blank page,
+// and because saving is manual it took everything entered since the last save
+// with it. React has no hook equivalent for componentDidCatch, so this is the
+// one class component in the app.
+class ErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null, stack: null };
+  }
+  static getDerivedStateFromError(error) { return { error }; }
+  componentDidCatch(error, info) {
+    this.setState({ stack: info?.componentStack || null });
+    // Still worth having in the console for anyone with devtools open.
+    console.error("Pennywise crashed:", error, info);
+  }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <CrashScreen
+        scope={this.props.scope}
+        error={this.state.error}
+        stack={this.state.stack}
+        onDismiss={this.props.onDismiss}
+        onReset={() => this.setState({ error: null, stack: null })}
+      />
+    );
+  }
+}
+
+function CrashScreen({ scope, error, stack, onReset, onDismiss }) {
+  const [copied, setCopied] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const whole = scope === "app";
+
+  const report = [
+    `Pennywise ${DATA_VER}`,
+    `When: ${new Date().toISOString()}`,
+    `Where: ${whole ? "whole app" : "page content"}`,
+    `Error: ${error?.message || String(error)}`,
+    error?.stack ? `\n${error.stack}` : "",
+    stack ? `\nComponent stack:${stack}` : "",
+  ].join("\n");
+
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(report); setCopied(true); setTimeout(() => setCopied(false), 2500); }
+    catch { /* clipboard blocked — the details are on screen to select instead */ }
+  };
+  const backup = async () => {
+    try { await downloadBackupFile(); setSaved(true); setTimeout(() => setSaved(false), 2500); }
+    catch { /* nothing more we can do from here */ }
+  };
+
+  return (
+    <div style={{ padding: whole ? "70px 24px" : "40px 24px", display:"flex", justifyContent:"center" }}>
+      <div className="card" style={{ padding:28, maxWidth:620, width:"100%" }}>
+        <div style={{ fontSize:34, marginBottom:12 }}>🪙</div>
+        <div style={{ fontFamily:"'Playfair Display'", fontSize:21, fontWeight:600, marginBottom:8 }}>
+          {whole ? "Pennywise ran into a problem" : "This page couldn't be displayed"}
+        </div>
+        <div style={{ fontSize:14, color:T.sub, marginBottom:6 }}>
+          Something went wrong while drawing {whole ? "the app" : "this page"}. This is a fault in Pennywise,
+          not something you did.
+        </div>
+        <div style={{ fontSize:14, color:T.sub, marginBottom:22 }}>
+          <strong style={{ color:T.text }}>Your saved data has not been touched.</strong> Anything entered
+          in the last second or two may not be, so take a backup before reloading.
+        </div>
+
+        <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:20 }}>
+          <button className="btn btn-primary" style={{ justifyContent:"center", padding:"11px 18px" }} onClick={backup}>
+            {saved ? "✓ Backup downloaded" : "↓ Download a backup of my data"}
+          </button>
+          {!whole && onDismiss && (
+            <button className="btn btn-ghost" style={{ justifyContent:"center", padding:"10px 18px" }}
+              onClick={() => { onReset(); onDismiss(); }}>
+              ← Go back to the Dashboard
+            </button>
+          )}
+          <button className="btn btn-ghost" style={{ justifyContent:"center", padding:"10px 18px" }}
+            onClick={() => window.location.reload()}>
+            ↻ Reload Pennywise
+          </button>
+        </div>
+
+        <details style={{ fontSize:12, color:T.sub }}>
+          <summary style={{ cursor:"pointer", marginBottom:10 }}>What went wrong (useful if you're reporting this)</summary>
+          <pre style={{ background:T.inputBg, border:`1px solid ${T.border}`, borderRadius:8, padding:"12px 14px",
+            fontSize:11, lineHeight:1.5, overflowX:"auto", whiteSpace:"pre-wrap", wordBreak:"break-word",
+            maxHeight:220, overflowY:"auto", color:T.sub, fontFamily:"monospace" }}>{report}</pre>
+          <button className="btn btn-ghost btn-sm" style={{ marginTop:10 }} onClick={copy}>
+            {copied ? "✓ Copied" : "Copy report"}
+          </button>
+        </details>
+      </div>
+    </div>
+  );
+}
+
+// ─── SAVE STATUS ─────────────────────────────────────────────────────────────
+// Replaces the Save All button. Work is written shortly after you stop making
+// it, so the header only has to say where things stand — and stays clickable
+// for anyone who wants to force a save before closing the laptop.
+function SaveStatus({ state, savedAt, onSaveNow }) {
+  // "now" is held in state rather than read during render, so the label stays a
+  // pure function of props and state. It resets to the moment of the save — so
+  // a fresh save reads "just now" — and the interval carries it forward.
+  const [now, setNow] = useSyncedState(savedAt || 0);
+  useEffect(() => {
+    if (!savedAt) return;
+    const id = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(id);
+  }, [savedAt, setNow]);
+
+  const ago = ts => {
+    const secs = Math.max(0, Math.round((now - ts) / 1000));
+    if (secs < 45) return "just now";
+    const mins = Math.round(secs / 60);
+    if (mins < 60) return `${mins} min ago`;
+    return `${Math.round(mins / 60)} hr ago`;
+  };
+
+  const look =
+    state === "pending" ? { dot: T.warning, text: "Unsaved changes", title: "Saving shortly — click to save now" }
+  : state === "saving"  ? { dot: T.blue,    text: "Saving…",         title: "Writing to this browser" }
+  : savedAt             ? { dot: T.success, text: `Saved ${ago(savedAt)}`, title: "Click to save again now" }
+  :                       { dot: T.border,  text: "All changes saved",     title: "Nothing to save yet" };
+
+  return (
+    <button onClick={onSaveNow} title={look.title}
+      style={{ display:"flex", alignItems:"center", gap:7, background:"transparent", border:"none",
+        cursor:"pointer", fontFamily:"'DM Sans'", fontSize:12, color:T.sub, padding:"6px 4px", minWidth:132 }}>
+      <span style={{ width:7, height:7, borderRadius:"50%", background:look.dot, flexShrink:0,
+        transition:"background .2s" }}/>
+      {look.text}
+    </button>
+  );
+}
+
 // ─── BACKUP & RESTORE ────────────────────────────────────────────────────────
 function DataModal({ userName, onExport, onImport, importState, onClose }) {
   const fileRef = useRef(null);
@@ -2135,7 +2274,17 @@ function Onboarding({ onComplete }) {
 }
 
 // ─── MAIN APP ────────────────────────────────────────────────────────────────
+// The outermost boundary. A fault in the header, the providers or the loading
+// path would otherwise leave a blank page with no way to rescue unsaved work.
 export default function App() {
+  return (
+    <ErrorBoundary scope="app">
+      <PennywiseApp />
+    </ErrorBoundary>
+  );
+}
+
+function PennywiseApp() {
   const [onboarded, setOnboarded] = useState(false);  // gated until loaded
   const [onboardLoading, setOnboardLoading] = useState(true);
   const [userName, setUserName] = useState("");
@@ -2146,7 +2295,9 @@ export default function App() {
   const [monthIdx, setMonthIdx] = useState(() =>
     Math.max(0, Math.min(monthIndexOf(LEGACY_EPOCH), MAX_MONTHS - 1)));
   const [loading, setLoading] = useState(true);
-  const [saved, setSaved] = useState(false);
+  // "idle" before anything changes, then pending -> saving -> saved.
+  const [saveState, setSaveState] = useState("idle");
+  const [savedAt, setSavedAt] = useState(null);
   const [fyStart, setFYStart] = useState(3); // April default
   const [totalMonths, setTotalMonths] = useState(48); // starts at 48, user can extend
   const [fySettingsOpen, setFYSettingsOpen] = useState(false);
@@ -2342,19 +2493,7 @@ export default function App() {
   // Write whatever is currently in storage out as a file. Returns the values
   // written, so callers that are about to destroy something can back it up
   // first and know it succeeded.
-  const downloadBackup = useCallback(async (values) => {
-    const v = values || await readAll();
-    const doc = buildBackup(v);
-    const url = URL.createObjectURL(new Blob([JSON.stringify(doc, null, 2)], { type: "application/json" }));
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = backupFilename(v.name);
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 2000);
-    return v;
-  }, []);
+  const downloadBackup = useCallback(values => downloadBackupFile(values), []);
 
   const [importState, setImportState] = useState(null); // { error } | { ok, count, exportedAt }
 
@@ -2394,7 +2533,9 @@ export default function App() {
     window.location.reload();
   }, [downloadBackup]);
 
-  const handleSave = useCallback(async () => {
+  // Writes everything to storage. Free of UI state, so the autosave and the
+  // manual "save now" go through exactly the same path.
+  const persist = useCallback(async () => {
     await Promise.all([
       save("bt3-fy", fyStart),
       save("bt3-tm", totalMonths),
@@ -2412,9 +2553,45 @@ export default function App() {
       save("bt3-nw", netWorth), save("bt3-nwCats", netWorthAssets), save("bt3-mo", moneyOwed),
       save("bt3-expN", expNotes), save("bt3-incN", incomeNotes),
     ]);
-    setSaved(true); setTimeout(()=>setSaved(false), 2000);
   }, [fyStart,totalMonths,currency,userName,savingsGoal,savingsTypes,epoch,netWorthAssets,incomeStreams,savingsStreams,expStreams,baselineIncome,baselineSavings,baselineExp,
       incomeActual,savingsForecast,savingsWeekly,expForecast,expWeekly,netWorth,moneyOwed,expNotes,incomeNotes]);
+
+  // ─── Autosave ────────────────────────────────────────────────────────────
+  // Saving used to be a button you had to remember to press, so an evening of
+  // entering receipts could be lost by closing the tab. Changes are now written
+  // shortly after you stop making them, and the window in between is guarded.
+  const armed = useRef(false);
+  useEffect(() => {
+    if (loading || !onboarded) return;
+    // The first run after loading is the freshly-read profile settling into
+    // state, not something the user did — arm on it rather than saving it back.
+    if (!armed.current) { armed.current = true; return; }
+
+    setSaveState("pending");
+    const t = setTimeout(async () => {
+      setSaveState("saving");
+      await persist();
+      setSavedAt(Date.now());
+      setSaveState("saved");
+    }, 1200);
+    return () => clearTimeout(t);
+  }, [loading, onboarded, persist]);
+
+  // Only warn while a change is actually outstanding. A guard that fires on
+  // every close is one people learn to dismiss without reading.
+  useEffect(() => {
+    if (saveState !== "pending" && saveState !== "saving") return;
+    const warn = e => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [saveState]);
+
+  const saveNow = useCallback(async () => {
+    setSaveState("saving");
+    await persist();
+    setSavedAt(Date.now());
+    setSaveState("saved");
+  }, [persist]);
 
   // Category handlers — ensure data structures when streams change
   const handleSetInc = useCallback((ns, origin) => {
@@ -2568,8 +2745,8 @@ export default function App() {
             <span>{flagEmoji(currency.locale)}</span> {currency.code}
           </button>
           <button className="btn btn-ghost btn-sm" onClick={()=>setFYSettingsOpen(true)} title="Financial year settings">⚙ FY Settings</button>
-          <button className="btn btn-ghost btn-sm" onClick={()=>{setImportState(null);setDataModalOpen(true);}} title="Back up or restore your data">⇅ Data</button>
-          <button className="btn btn-primary" onClick={handleSave} style={{ minWidth:88 }}>{saved?"✓ Saved":"Save All"}</button>
+          <button className="btn btn-ghost btn-sm" onClick={()=>{setImportState(null);setDataModalOpen(true);}} title="Back up or restore your data">⇅ Backup</button>
+          <SaveStatus state={saveState} savedAt={savedAt} onSaveNow={saveNow}/>
         </div>
       </div>
 
@@ -2597,8 +2774,10 @@ export default function App() {
           </div>
         </div>
 
-        {/* Main */}
+        {/* Main. Keyed on the page so switching away from a broken one clears
+            the error, and scoped so the header and sidebar survive it. */}
         <div style={{ flex:1, padding:"22px", overflowX:"hidden" }}>
+          <ErrorBoundary key={page} scope="page" onDismiss={()=>setPage("dashboard")}>
           {page==="dashboard"&&<Dashboard monthIdx={monthIdx} fyStart={fyStart} totalMonths={totalMonths} incomeStreams={incomeStreams} savingsStreams={savingsStreams} expStreams={expStreams}
             baselineIncome={baselineIncome} baselineSavings={baselineSavings} baselineExp={baselineExp}
             incomeActual={incomeActual} savingsForecast={savingsForecast} savingsWeekly={savingsWeekly}
@@ -2629,6 +2808,7 @@ export default function App() {
             incomeStreams={incomeStreams} savingsStreams={savingsStreams} expStreams={expStreams}
             baselineIncome={baselineIncome} baselineSavings={baselineSavings} baselineExp={baselineExp}
             onEditBaseline={openBaselineEditor}/>}
+          </ErrorBoundary>
         </div>
       </div>
     </div>
