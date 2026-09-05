@@ -1482,18 +1482,24 @@ function SankeyDiagram({ incomeStreams, savingsStreams, expStreams, savingsTypes
     return node;
   });
 
-  // One flow per destination — all originate from the single source bar
+  // One flow per destination — all originate from the single source bar, which
+  // they tile without gaps, so their heights are scaled against its full height.
   const flowHeights = fitHeights(dstNodes.map(n => n.value), srcH, 1);
   let srcOff = 0;
   const flows = dstLayout.map((dst, i) => {
-    const flow = { dst, y1:srcOff, y2:dst.y, fh:flowHeights[i] };
+    const flow = { dst, y1:srcOff, y2:dst.y, fh:flowHeights[i], dh:dst.h };
     srcOff += flowHeights[i];
     return flow;
   });
 
-  const bezier = (y1, y2, fh) => {
+  // A ribbon is thicker where it leaves than where it lands: the source bar is
+  // solid over its full height, while the destination stack loses room to a gap
+  // between every node and to the minimum height small categories are given.
+  // Drawing both ends at the source thickness made every ribbon overshoot the
+  // bar it flows into, so each now tapers to its destination's exact height.
+  const bezier = (y1, y2, fh, dh) => {
     const mx = (srcX + dstX) / 2;
-    return `M${srcX+nodeW} ${y1} C${mx} ${y1},${mx} ${y2},${dstX} ${y2} L${dstX} ${y2+fh} C${mx} ${y2+fh},${mx} ${y1+fh},${srcX+nodeW} ${y1+fh} Z`;
+    return `M${srcX+nodeW} ${y1} C${mx} ${y1},${mx} ${y2},${dstX} ${y2} L${dstX} ${y2+dh} C${mx} ${y2+dh},${mx} ${y1+fh},${srcX+nodeW} ${y1+fh} Z`;
   };
   const trunc = (s, n=22) => s.length > n ? s.slice(0, n-1)+"\u2026" : s;
 
@@ -1509,7 +1515,7 @@ function SankeyDiagram({ incomeStreams, savingsStreams, expStreams, savingsTypes
       <svg width="100%" viewBox={`0 -28 ${W} ${H+28}`} style={{ display:"block", overflow:"visible" }}>
         {/* Flows */}
         {flows.map((f, i) => (
-          <path key={i} d={bezier(f.y1, f.y2, f.fh)}
+          <path key={i} d={bezier(f.y1, f.y2, f.fh, f.dh)}
             fill={f.dst.color} fillOpacity={hovered === i ? 0.55 : 0.18}
             style={{ cursor:"default", transition:"fill-opacity .13s" }}
             onMouseEnter={() => setHovered(i)} onMouseLeave={() => setHovered(null)} />
