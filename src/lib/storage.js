@@ -59,20 +59,20 @@ function buildBackup(values, now = new Date()) {
 function parseBackup(text) {
   let doc;
   try { doc = JSON.parse(text); }
-  catch { return { ok: false, error: "That file isn't valid JSON, so it can't be a Pennywise backup." }; }
+  catch { return { ok: false, error: "That file isn't valid JSON, so it can't be a Yo Cent-E backup." }; }
   if (!doc || typeof doc !== "object" || Array.isArray(doc))
-    return { ok: false, error: "That file doesn't contain a Pennywise backup." };
+    return { ok: false, error: "That file doesn't contain a Yo Cent-E backup." };
   if (doc.kind !== FILE_KIND)
-    return { ok: false, error: "That file isn't a Pennywise backup — it has no identifying header." };
+    return { ok: false, error: "That file isn't a Yo Cent-E backup — it has no identifying header." };
   if (!doc.data || typeof doc.data !== "object" || Array.isArray(doc.data))
     return { ok: false, error: "That backup has no data in it." };
   if (doc.version && !KNOWN_VERSIONS.includes(doc.version))
-    return { ok: false, error: `That backup was written by a newer version of Pennywise (${doc.version}). Update the app before restoring it.` };
+    return { ok: false, error: `That backup was written by a newer version of Yo Cent-E (${doc.version}). Update the app before restoring it.` };
 
   const values = {};
   let count = 0;
   for (const k of STORAGE_KEYS) if (k in doc.data) { values[k] = doc.data[k]; count++; }
-  if (!count) return { ok: false, error: "That backup has no recognisable Pennywise fields in it." };
+  if (!count) return { ok: false, error: "That backup has no recognisable Yo Cent-E fields in it." };
   return { ok: true, values, version: doc.version || KNOWN_VERSIONS[0], count, exportedAt: doc.exportedAt || null };
 }
 
@@ -80,7 +80,7 @@ function parseBackup(text) {
 function backupFilename(name, now = new Date()) {
   const stamp = now.toISOString().slice(0, 16).replace("T", "-").replace(":", "");
   const who = String(name || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-  return `pennywise-${who ? who + "-" : ""}${stamp}.json`;
+  return `yo-cent-e-${who ? who + "-" : ""}${stamp}.json`;
 }
 
 // ─── BROWSER GLUE ─────────────────────────────────────────────────────────────

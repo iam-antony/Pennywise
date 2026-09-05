@@ -587,7 +587,7 @@ class ErrorBoundary extends Component {
   componentDidCatch(error, info) {
     this.setState({ stack: info?.componentStack || null });
     // Still worth having in the console for anyone with devtools open.
-    console.error("Pennywise crashed:", error, info);
+    console.error("Yo Cent-E crashed:", error, info);
   }
   render() {
     if (!this.state.error) return this.props.children;
@@ -609,7 +609,7 @@ function CrashScreen({ scope, error, stack, onReset, onDismiss }) {
   const whole = scope === "app";
 
   const report = [
-    `Pennywise ${DATA_VER}`,
+    `Yo Cent-E ${DATA_VER}`,
     `When: ${new Date().toISOString()}`,
     `Where: ${whole ? "whole app" : "page content"}`,
     `Error: ${error?.message || String(error)}`,
@@ -631,10 +631,10 @@ function CrashScreen({ scope, error, stack, onReset, onDismiss }) {
       <div className="card" style={{ padding:28, maxWidth:620, width:"100%" }}>
         <div style={{ fontSize:34, marginBottom:12 }}>🪙</div>
         <div style={{ fontFamily:"'Playfair Display'", fontSize:21, fontWeight:600, marginBottom:8 }}>
-          {whole ? "Pennywise ran into a problem" : "This page couldn't be displayed"}
+          {whole ? "Yo Cent-E ran into a problem" : "This page couldn't be displayed"}
         </div>
         <div style={{ fontSize:14, color:T.sub, marginBottom:6 }}>
-          Something went wrong while drawing {whole ? "the app" : "this page"}. This is a fault in Pennywise,
+          Something went wrong while drawing {whole ? "the app" : "this page"}. This is a fault in Yo Cent-E,
           not something you did.
         </div>
         <div style={{ fontSize:14, color:T.sub, marginBottom:22 }}>
@@ -654,7 +654,7 @@ function CrashScreen({ scope, error, stack, onReset, onDismiss }) {
           )}
           <button className="btn btn-ghost" style={{ justifyContent:"center", padding:"10px 18px" }}
             onClick={() => window.location.reload()}>
-            ↻ Reload Pennywise
+            ↻ Reload Yo Cent-E
           </button>
         </div>
 
@@ -775,7 +775,7 @@ function VersionConflictModal({ found, onBackup, onLoadAnyway, onDiscard }) {
         </div>
         <div style={{ fontSize:13, color:T.sub, marginBottom:8 }}>
           The saved profile says it was written by <strong style={{ color:T.accent }}>{String(found)}</strong>,
-          which this version of Pennywise does not recognise. Nothing has been changed or deleted.
+          which this version of Yo Cent-E does not recognise. Nothing has been changed or deleted.
         </div>
         <div style={{ fontSize:13, color:T.sub, marginBottom:20 }}>
           Download a backup first — that file can be restored into any version that understands it.
@@ -2465,7 +2465,7 @@ function Onboarding({ onComplete, onRestore, importState }) {
     <div key={0} style={{ textAlign:"center" }}>
       <div style={{ fontSize:60, marginBottom:24, lineHeight:1 }}>👋</div>
       <h1 style={{ fontFamily:"'Playfair Display'", fontSize:32, fontWeight:700, color:T.text, marginBottom:12 }}>
-        Welcome to Pennywise
+        Welcome to Yo Cent-E
       </h1>
       <p style={{ fontSize:15, color:T.sub, maxWidth:400, margin:"0 auto 40px" }}>
         Your personal finance tracker. Let's take two minutes to set things up exactly how you want them.
@@ -2491,7 +2491,7 @@ function Onboarding({ onComplete, onRestore, importState }) {
         {onRestore && (
           <div style={{ marginTop:28, paddingTop:20, borderTop:`1px solid ${T.border}` }}>
             <div style={{ fontSize:13, color:T.sub, marginBottom:10 }}>
-              Used Pennywise before? Your data lives in the browser you set it up in, so on a new
+              Used Yo Cent-E before? Your data lives in the browser you set it up in, so on a new
               device you start from a backup file.
             </div>
             <button className="btn btn-ghost btn-sm" onClick={() => restoreRef.current?.click()}
@@ -2759,12 +2759,12 @@ function Onboarding({ onComplete, onRestore, importState }) {
 export default function App() {
   return (
     <ErrorBoundary scope="app">
-      <PennywiseApp />
+      <YoCentEApp />
     </ErrorBoundary>
   );
 }
 
-function PennywiseApp() {
+function YoCentEApp() {
   const [onboarded, setOnboarded] = useState(false);  // gated until loaded
   const [onboardLoading, setOnboardLoading] = useState(true);
   const [userName, setUserName] = useState("");
@@ -3167,7 +3167,7 @@ function PennywiseApp() {
   if (loading) return (
     <div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:"100vh" }}>
       <div style={{ textAlign:"center" }}>
-        <div style={{ fontFamily:"'Playfair Display'", fontSize:24, color:T.accent, marginBottom:8 }}>Pennywise</div>
+        <div style={{ fontFamily:"'Playfair Display'", fontSize:24, color:T.accent, marginBottom:8 }}>Yo Cent-E</div>
         <div style={{ color:T.sub, fontSize:13 }}>Loading your data…</div>
       </div>
     </div>
@@ -3231,7 +3231,7 @@ function PennywiseApp() {
 
       {/* Header */}
       <header className="app-header">
-        <div style={{ fontFamily:"'Playfair Display'", fontSize:17, fontWeight:600, color:T.accent }}>◈ Pennywise
+        <div style={{ fontFamily:"'Playfair Display'", fontSize:17, fontWeight:600, color:T.accent }}>◈ Yo Cent-E
           {userName && <span style={{ fontFamily:"'DM Sans'", fontSize:12, fontWeight:400, color:T.sub, marginLeft:10 }}>· {userName}</span>}
         </div>
         <div style={{ display:"flex", alignItems:"center", gap:8 }}>

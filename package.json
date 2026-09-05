@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "Pennywise — a personal finance tracker",
+  "description": "Yo Cent-E — a personal finance tracker",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

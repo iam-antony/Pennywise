@@ -98,7 +98,7 @@ describe("parseBackup", () => {
     }
   });
 
-  it("rejects a Pennywise-shaped file with no usable fields", () => {
+  it("rejects a backup-shaped file with no usable fields", () => {
     const r = parseBackup(JSON.stringify({ kind: "pennywise-backup", data: { nonsense: 1 } }));
     expect(r.ok).toBe(false);
     expect(r.error).toMatch(/recognisable/);
@@ -118,13 +118,13 @@ describe("backupFilename", () => {
   const when = new Date("2026-09-02T20:15:00.000Z");
 
   it("names the file after the profile and the moment", () => {
-    expect(backupFilename("Antony", when)).toBe("pennywise-antony-2026-09-02-2015.json");
+    expect(backupFilename("Antony", when)).toBe("yo-cent-e-antony-2026-09-02-2015.json");
   });
 
   it("copes with an awkward or missing name", () => {
-    expect(backupFilename("", when)).toBe("pennywise-2026-09-02-2015.json");
-    expect(backupFilename(null, when)).toBe("pennywise-2026-09-02-2015.json");
-    expect(backupFilename("Ann-Marie O'Neill", when)).toBe("pennywise-ann-marie-o-neill-2026-09-02-2015.json");
+    expect(backupFilename("", when)).toBe("yo-cent-e-2026-09-02-2015.json");
+    expect(backupFilename(null, when)).toBe("yo-cent-e-2026-09-02-2015.json");
+    expect(backupFilename("Ann-Marie O'Neill", when)).toBe("yo-cent-e-ann-marie-o-neill-2026-09-02-2015.json");
   });
 });
 
