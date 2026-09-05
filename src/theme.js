@@ -95,6 +95,10 @@ tr:last-child td{border-bottom:none}
    short of it or past it. */
 .pace-mark{position:absolute;top:-2px;width:2px;height:14px;background:${T.text};opacity:.85;border-radius:1px}
 @media (prefers-reduced-motion: reduce){.pace-fill{transition:none}}
+
+/* "only" — isolate one category without unticking every other one. */
+.pick-only{background:none;border:0;color:${T.sub};font-size:10px;text-transform:uppercase;letter-spacing:.06em;cursor:pointer;padding:2px 4px;border-radius:4px;flex-shrink:0}
+.pick-only:hover{color:${T.accent};background:rgba(255,255,255,.05)}
 .fy-tab{padding:6px 14px;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;border:1px solid ${T.border};color:${T.sub};background:transparent;transition:all .15s;white-space:nowrap}
 .fy-tab.active{background:rgba(212,168,83,.15);border-color:${T.accent};color:${T.accent};font-weight:600}
 .view-toggle{display:flex;background:${T.inputBg};border:1px solid ${T.border};border-radius:8px;padding:3px;gap:2px}

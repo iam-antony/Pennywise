@@ -1042,20 +1042,79 @@ function AnnotatedTooltip({ active, payload, label }) {
 // month. The chart takes whichever shape it is given rather than assuming one.
 // `showForecast` is off for income, which has no forecast series — drawing one
 // would duplicate the baseline bar and its cumulative line.
+// A funnel, drawn rather than borrowed from a font. There is no unicode funnel
+// that renders the same across platforms, and the geometric glyphs used
+// elsewhere all read as "grid" or "shape" rather than "filter".
+function FilterIcon({ size = 11 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden="true"
+      style={{ display:"block", flexShrink:0 }}>
+      <path d="M1.9 2.7h12.2a.55.55 0 0 1 .42.9l-4.43 5.22v4.3a.55.55 0 0 1-.3.49l-2.6 1.32a.55.55 0 0 1-.8-.49V8.82L1.48 3.6a.55.55 0 0 1 .42-.9z"
+        fill="currentColor"/>
+    </svg>
+  );
+}
+
+// Which categories a chart or dial is showing: all of them to begin with, and
+// kept in step as categories are added or removed without discarding what the
+// user had already unticked.
+function useStreamSelection(streams) {
+  const [sel, setSel] = useState(streams);
+  const [seen, setSeen] = useState(streams);
+  if (seen !== streams) {
+    setSeen(streams);
+    setSel(prev => [...prev.filter(x => streams.includes(x)), ...streams.filter(x => !prev.includes(x))]);
+  }
+  return [sel, setSel];
+}
+
+// The funnel button and its dropdown. Shared by the charts and the savings
+// dial so the same control does the same thing everywhere.
+function StreamFilter({ streams, sel, setSel, color, label = "Included categories" }) {
+  const [open, setOpen] = useState(false);
+  const filtered = sel.length !== streams.length;
+  const toggle = s => setSel(p => p.includes(s) ? p.filter(x => x !== s) : [...p, s]);
+  return (
+    <div style={{ position:"relative" }}>
+      <button className="btn btn-ghost btn-sm" style={{ gap:6 }} onClick={()=>setOpen(o=>!o)}
+        aria-expanded={open} aria-haspopup="true"
+        title={filtered ? `Filtered to ${sel.length} of ${streams.length} categories` : "Filter categories"}>
+        <FilterIcon/>{sel.length}/{streams.length}
+      </button>
+      {open && (
+        <div style={{ position:"absolute", right:0, top:"calc(100% + 6px)", background:T.card,
+          border:`1px solid ${T.border}`, borderRadius:10, padding:14, zIndex:50, minWidth:210,
+          maxHeight:280, overflowY:"auto", boxShadow:"0 8px 24px rgba(0,0,0,.4)", textAlign:"left" }}>
+          <div className="sl" style={{ marginBottom:8 }}>{label}</div>
+          {streams.map(sname => (
+            <div key={sname} style={{ display:"flex", alignItems:"center", gap:8, padding:"4px 2px", fontSize:13 }}>
+              <label style={{ display:"flex", alignItems:"center", gap:8, cursor:"pointer", flex:1, minWidth:0 }}>
+                <input type="checkbox" checked={sel.includes(sname)} onChange={()=>toggle(sname)}
+                  style={{ accentColor:color, flexShrink:0 }}/>
+                <span style={{ overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{sname}</span>
+              </label>
+              {/* Isolating one category out of a long list should not mean
+                  unticking every other one. */}
+              <button className="pick-only" onClick={()=>setSel([sname])} title={`Show only ${sname}`}>only</button>
+            </div>
+          ))}
+          <div style={{ display:"flex", gap:8, marginTop:10 }}>
+            <button className="btn btn-ghost btn-sm" style={{ flex:1 }} disabled={!filtered}
+              onClick={()=>setSel(streams)}>All</button>
+            <button className="btn btn-ghost btn-sm" style={{ flex:1 }} onClick={()=>setOpen(false)}>Done</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ComboChart({ title, streams, weeklyData, monthlyData, forecastData, baselineData,
   fyMonths, color, type, showForecast = true }) {
   const { MONTHS } = useCalendar();
   const { fmt, fmtAxis } = useMoney();
   const actualAt = (s, mi) => monthlyData ? monthlyVal(monthlyData, s, mi) : weeklyTotal(weeklyData, s, mi);
-  const [sel, setSel] = useState(streams);
-  // Keep the picker in step when categories are added or removed, preserving
-  // whatever the user had already deselected.
-  const [seenStreams, setSeenStreams] = useState(streams);
-  if (seenStreams !== streams) {
-    setSeenStreams(streams);
-    setSel(prev => [...prev.filter(x => streams.includes(x)), ...streams.filter(x => !prev.includes(x))]);
-  }
-  const [picker, setPicker] = useState(false);
+  const [sel, setSel] = useStreamSelection(streams);
 
   // Built with reduce rather than accumulators mutated inside a map, so nothing
   // is reassigned mid-render — the pattern the React Compiler rejects.
@@ -1105,21 +1164,7 @@ function ComboChart({ title, streams, weeklyData, monthlyData, forecastData, bas
           {projEnd&&<div style={{ fontSize:11, background:"rgba(255,255,255,.04)", border:`1px solid ${T.border}`, borderRadius:6, padding:"4px 10px", color:T.sub }}>
             Proj. year-end: <strong style={{ color:T.text }}>{fmt(projEnd)}</strong>
           </div>}
-          <div style={{ position:"relative" }}>
-            <button className="btn btn-ghost btn-sm" onClick={()=>setPicker(p=>!p)}>⊞ {sel.length}/{streams.length}</button>
-            {picker&&(
-              <div style={{ position:"absolute", right:0, top:"calc(100% + 6px)", background:T.card, border:`1px solid ${T.border}`, borderRadius:10, padding:14, zIndex:50, minWidth:190, maxHeight:250, overflowY:"auto", boxShadow:"0 8px 24px rgba(0,0,0,.4)" }}>
-                <div className="sl" style={{ marginBottom:8 }}>Included categories</div>
-                {streams.map(s=>(
-                  <label key={s} style={{ display:"flex", alignItems:"center", gap:8, padding:"5px 2px", cursor:"pointer", fontSize:13 }}>
-                    <input type="checkbox" checked={sel.includes(s)} onChange={()=>setSel(p=>p.includes(s)?p.filter(x=>x!==s):[...p,s])} style={{ accentColor:color }}/>
-                    {s}
-                  </label>
-                ))}
-                <button className="btn btn-ghost btn-sm" style={{ marginTop:10, width:"100%" }} onClick={()=>setPicker(false)}>Done</button>
-              </div>
-            )}
-          </div>
+          <StreamFilter streams={streams} sel={sel} setSel={setSel} color={color}/>
         </div>
       </div>
       <div style={{ display:"flex", gap:12, margin:"10px 0", flexWrap:"wrap" }}>
@@ -1880,14 +1925,20 @@ function SavingsPage({ monthIdx, viewEpoch, fyStart, totalMonths, streams, setSt
   const [selFY, setSelFY] = useSyncedState(getFYYear(monthIdx, fyStart), viewEpoch);
   const fyMonths = getFYMonths(selFY, fyStart, totalMonths);
 
-  // Every savings category together, pots and investments alike — the split
-  // between the two is the dashboard's job; this page is about the total.
+  // Every savings category together by default, pots and investments alike —
+  // the split between the two is the dashboard's job. The funnel narrows it,
+  // so a single pot can be read on its own without the rest drowning it out.
+  const [dialSel, setDialSel] = useStreamSelection(streams);
   const currentFY = getFYYear(monthIdx, fyStart);
   const ytd       = fyElapsed(fyMonths, monthIdx, selFY, currentFY);
-  const ytdActual = ytd.reduce((a,mi)=>a+allStreamsWeekly(streams, weeklyData, mi), 0);
-  const ytdDue    = ytd.reduce((a,mi)=>a+allMonthly(streams, baselineData, mi), 0);
-  const annual    = fyMonths.reduce((a,mi)=>a+allMonthly(streams, baselineData, mi), 0);
+  const ytdActual = ytd.reduce((a,mi)=>a+allStreamsWeekly(dialSel, weeklyData, mi), 0);
+  const ytdDue    = ytd.reduce((a,mi)=>a+allMonthly(dialSel, baselineData, mi), 0);
+  const annual    = fyMonths.reduce((a,mi)=>a+allMonthly(dialSel, baselineData, mi), 0);
   const started   = ytd.length > 0;
+  const dialScope = dialSel.length === 0 ? "nothing selected"
+    : dialSel.length === streams.length ? "all savings categories together"
+    : dialSel.length <= 2 ? dialSel.join(" · ")
+    : `${dialSel.length} of ${streams.length} categories`;
 
   return (
     <div className="fade">
@@ -1935,14 +1986,27 @@ function SavingsPage({ monthIdx, viewEpoch, fyStart, totalMonths, streams, setSt
       {/* The dial, kept off the dashboard but at home here. */}
       <div className="card" style={{ padding:20, marginBottom:16, display:"flex",
         flexDirection:"column", alignItems:"center" }}>
-        <div style={{ fontFamily:"'Playfair Display'", fontSize:15, fontWeight:600, marginBottom:4, alignSelf:"flex-start" }}>
-          {started ? (ytd.length === fyMonths.length ? "Full Year Result" : "Year-to-Date Progress") : "Planned Year"}
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start",
+          gap:12, width:"100%", marginBottom:10 }}>
+          <div>
+            <div style={{ fontFamily:"'Playfair Display'", fontSize:15, fontWeight:600, marginBottom:4 }}>
+              {started ? (ytd.length === fyMonths.length ? "Full Year Result" : "Year-to-Date Progress") : "Planned Year"}
+            </div>
+            <div style={{ fontSize:11, color:T.sub }}>
+              {fyLabel(selFY, fyStart)} · {dialScope}
+            </div>
+          </div>
+          <StreamFilter streams={streams} sel={dialSel} setSel={setDialSel} color={T.success}
+            label="Categories in this dial"/>
         </div>
-        <div style={{ fontSize:11, color:T.sub, marginBottom:10, alignSelf:"flex-start" }}>
-          {fyLabel(selFY, fyStart)} · all savings categories together
-        </div>
-        <GaugeDial label="Savings" icon="🏦" actual={ytdActual} target={ytdDue} annual={annual}
-          color={T.success} sub={`${streams.length} ${streams.length === 1 ? "category" : "categories"}`}/>
+        {dialSel.length === 0
+          ? <div style={{ fontSize:12, color:T.sub, padding:"38px 0" }}>
+              Pick at least one category from the filter to see the dial.
+            </div>
+          : <GaugeDial label="Savings" icon="🏦" actual={ytdActual} target={ytdDue} annual={annual}
+              color={T.success} sub={dialSel.length === streams.length
+                ? `${streams.length} ${streams.length === 1 ? "category" : "categories"}`
+                : `${dialSel.length} of ${streams.length} selected`}/>}
         <div style={{ display:"flex", gap:18, marginTop:6, fontSize:12 }}>
           <div style={{ textAlign:"center" }}><div style={{ color:T.sub,fontSize:10,textTransform:"uppercase",letterSpacing:".06em" }}>{started ? "YTD Actual" : "Saved"}</div><div style={{ fontWeight:700,color:T.success }}>{fmt(ytdActual)}</div></div>
           <div style={{ textAlign:"center" }}><div style={{ color:T.sub,fontSize:10,textTransform:"uppercase",letterSpacing:".06em" }}>Expected by now</div><div style={{ fontWeight:700 }}>{fmt(ytdDue)}</div></div>
