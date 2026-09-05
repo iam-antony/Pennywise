@@ -74,6 +74,11 @@ tr:last-child td{border-bottom:none}
 .wtab{padding:5px 12px;border-radius:6px;font-size:12px;font-weight:500;cursor:pointer;border:1px solid ${T.border};color:${T.sub};background:transparent;transition:all .15s}
 .wtab.active{background:rgba(212,168,83,.12);border-color:${T.accent};color:${T.accent}}
 .stat-card{background:${T.card};border:1px solid ${T.border};border-radius:12px;padding:18px 20px;flex:1;min-width:140px}
+/* A card that leads somewhere should look like it does, and say where on hover. */
+.stat-card-link{position:relative;transition:border-color .15s, transform .15s}
+.stat-card-link:hover{border-color:${T.accent};transform:translateY(-2px)}
+.stat-card-go{position:absolute;top:16px;right:16px;color:${T.border};font-size:15px;transition:color .15s}
+.stat-card-link:hover .stat-card-go{color:${T.accent}}
 .fy-tab{padding:6px 14px;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;border:1px solid ${T.border};color:${T.sub};background:transparent;transition:all .15s;white-space:nowrap}
 .fy-tab.active{background:rgba(212,168,83,.15);border-color:${T.accent};color:${T.accent};font-weight:600}
 .view-toggle{display:flex;background:${T.inputBg};border:1px solid ${T.border};border-radius:8px;padding:3px;gap:2px}

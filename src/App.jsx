@@ -178,17 +178,29 @@ function FormulaCell({ value, onCommit, placeholder, style, label }) {
   );
 }
 
-function StatCard({ icon, label, value, sub, delta, deltaLabel = "vs baseline", posGood = true, valueTone }) {
+// A card is a button when it leads somewhere. Rendering a clickable div would
+// put it out of reach of the keyboard, which is the fault P4-05 fixed for the
+// sidebar — not worth reintroducing here.
+function StatCard({ icon, label, value, sub, delta, deltaLabel = "vs baseline", posGood = true, valueTone, onOpen, openLabel }) {
   const { fmtS } = useMoney();
   const good = posGood ? T.success : T.danger, bad = posGood ? T.danger : T.success;
-  return (
-    <div className="stat-card">
-      <div style={{ fontSize:20, marginBottom:5 }}>{icon}</div>
+  const body = (
+    <>
+      <div aria-hidden="true" style={{ fontSize:20, marginBottom:5 }}>{icon}</div>
       <div className="sl" style={{ marginBottom:4 }}>{label}</div>
       <div style={{ fontFamily:"'Playfair Display'", fontSize:22, fontWeight:600, color:valueTone || T.accent }}>{value}</div>
       {sub && <div style={{ fontSize:12, color:T.sub, marginTop:3 }}>{sub}</div>}
       {delta !== undefined && <div style={{ fontSize:12, color:delta >= 0 ? good : bad, marginTop:4 }}>{fmtS(delta)} {deltaLabel}</div>}
-    </div>
+    </>
+  );
+  if (!onOpen) return <div className="stat-card">{body}</div>;
+  return (
+    <button className="stat-card stat-card-link" onClick={onOpen}
+      aria-label={openLabel || `${label} — open`}
+      style={{ textAlign:"left", cursor:"pointer", font:"inherit", color:"inherit" }}>
+      {body}
+      <div className="stat-card-go" aria-hidden="true">→</div>
+    </button>
   );
 }
 
@@ -961,9 +973,15 @@ function AnnotatedTooltip({ active, payload, label }) {
   );
 }
 
-function ComboChart({ title, streams, weeklyData, forecastData, baselineData, fyMonths, color, type }) {
+// Savings and expenditure record actuals per week; income records them per
+// month. The chart takes whichever shape it is given rather than assuming one.
+// `showForecast` is off for income, which has no forecast series — drawing one
+// would duplicate the baseline bar and its cumulative line.
+function ComboChart({ title, streams, weeklyData, monthlyData, forecastData, baselineData,
+  fyMonths, color, type, showForecast = true }) {
   const { MONTHS } = useCalendar();
   const { fmt, fmtAxis } = useMoney();
+  const actualAt = (s, mi) => monthlyData ? monthlyVal(monthlyData, s, mi) : weeklyTotal(weeklyData, s, mi);
   const [sel, setSel] = useState(streams);
   // Keep the picker in step when categories are added or removed, preserving
   // whatever the user had already deselected.
@@ -978,8 +996,8 @@ function ComboChart({ title, streams, weeklyData, forecastData, baselineData, fy
   // is reassigned mid-render — the pattern the React Compiler rejects.
   const { rows: raw, lastActIdx } = fyMonths.reduce((acc, mi) => {
     const baseline = sel.reduce((a,s)=>a+(baselineData[s]?.[mi]||0),0);
-    const forecast = sel.reduce((a,s)=>a+(forecastData[s]?.[mi]||0),0);
-    const actual   = sel.reduce((a,s)=>a+weeklyTotal(weeklyData,s,mi),0);
+    const forecast = showForecast ? sel.reduce((a,s)=>a+(forecastData[s]?.[mi]||0),0) : 0;
+    const actual   = sel.reduce((a,s)=>a+actualAt(s,mi),0);
     const hasAct   = actual > 0;
     const cb = acc.cb + baseline, cf = acc.cf + forecast, ca = acc.ca + (hasAct ? actual : 0);
     acc.rows.push({ name:MONTHS[mi]?.short, mi, baseline, forecast,
@@ -1040,8 +1058,12 @@ function ComboChart({ title, streams, weeklyData, forecastData, baselineData, fy
         </div>
       </div>
       <div style={{ display:"flex", gap:12, margin:"10px 0", flexWrap:"wrap" }}>
-        {[{k:"baseline",l:"Baseline",t:"bar",c:BC.baseline},{k:"forecast",l:"Forecast",t:"bar",c:BC.forecast},{k:"actual",l:"Actual",t:"bar",c:BC.actual},
-          {k:"cumBaseline",l:"Cum. Baseline",t:"line",c:LC.cumBaseline,d:true},{k:"cumForecast",l:"Cum. Forecast",t:"line",c:LC.cumForecast},{k:"cumActual",l:"Cum. Actual",t:"line",c:LC.cumActual},
+        {[{k:"baseline",l:"Baseline",t:"bar",c:BC.baseline},
+          ...(showForecast?[{k:"forecast",l:"Forecast",t:"bar",c:BC.forecast}]:[]),
+          {k:"actual",l:"Actual",t:"bar",c:BC.actual},
+          {k:"cumBaseline",l:"Cum. Baseline",t:"line",c:LC.cumBaseline,d:true},
+          ...(showForecast?[{k:"cumForecast",l:"Cum. Forecast",t:"line",c:LC.cumForecast}]:[]),
+          {k:"cumActual",l:"Cum. Actual",t:"line",c:LC.cumActual},
           ...(avgMonthly>0?[{k:"projection",l:"Projected",t:"line",c:LC.projection,d:true}]:[])
         ].map(({k,l,t,c,d})=>(
           <div key={k} style={{ display:"flex", alignItems:"center", gap:4, fontSize:11, color:T.sub }}>
@@ -1058,10 +1080,10 @@ function ComboChart({ title, streams, weeklyData, forecastData, baselineData, fy
           <YAxis yAxisId="c" orientation="right" tick={{fill:T.sub,fontSize:10}} axisLine={false} tickLine={false} tickFormatter={fmtAxis} width={40}/>
           <Tooltip content={<AnnotatedTooltip/>}/>
           <Bar yAxisId="m" dataKey="baseline" name="Baseline" fill={BC.baseline} radius={[3,3,0,0]} barSize={8}/>
-          <Bar yAxisId="m" dataKey="forecast" name="Forecast" fill={BC.forecast} radius={[3,3,0,0]} barSize={8}/>
+          {showForecast && <Bar yAxisId="m" dataKey="forecast" name="Forecast" fill={BC.forecast} radius={[3,3,0,0]} barSize={8}/>}
           <Bar yAxisId="m" dataKey="actual" name="Actual" fill={BC.actual} radius={[3,3,0,0]} barSize={8}/>
           <Line yAxisId="c" type="monotone" dataKey="cumBaseline" name="Cum. Baseline" stroke={LC.cumBaseline} strokeWidth={1.5} dot={false} strokeDasharray="5 4" connectNulls/>
-          <Line yAxisId="c" type="monotone" dataKey="cumForecast" name="Cum. Forecast" stroke={LC.cumForecast} strokeWidth={1.5} dot={false} connectNulls/>
+          {showForecast && <Line yAxisId="c" type="monotone" dataKey="cumForecast" name="Cum. Forecast" stroke={LC.cumForecast} strokeWidth={1.5} dot={false} connectNulls/>}
           <Line yAxisId="c" type="monotone" dataKey="cumActual" name="Cum. Actual" stroke={LC.cumActual} strokeWidth={2.5} dot={false} connectNulls/>
           {avgMonthly>0&&<Line yAxisId="c" type="monotone" dataKey="projection" name="Projected" stroke={LC.projection} strokeWidth={1.5} strokeDasharray="6 4" dot={false} connectNulls/>}
         </ComposedChart>
@@ -1470,9 +1492,10 @@ function SankeyDiagram({ incomeStreams, savingsStreams, expStreams, savingsTypes
 
 function Dashboard({ monthIdx, fyStart, totalMonths, incomeStreams, savingsStreams, expStreams,
   baselineIncome, baselineSavings, baselineExp, incomeActual, savingsForecast, savingsWeekly, expForecast, expWeekly,
-  onFYSettings, savingsTypes }) {
+  onFYSettings, savingsTypes, netWorth, netWorthAssets, moneyOwed, onOpenPage }) {
   const { MONTHS, getFYYear, getFYMonths } = useCalendar();
-  const { fmt } = useMoney();
+  const { fmt, fmtS } = useMoney();
+  const sankeyRef = useRef(null);
 
   const [selFY, setSelFY] = useSyncedState(getFYYear(monthIdx, fyStart));
   const [viewMode, setViewMode] = useState("month");
@@ -1522,6 +1545,15 @@ function Dashboard({ monthIdx, fyStart, totalMonths, incomeStreams, savingsStrea
   const frac   = fyMonths.length > 0 ? ytd.length / fyMonths.length : 0;
   const netRemaining = actInc - actSav - actExp;
 
+  // Position figures for the second row of cards.
+  const netWorthTotal = netWorthTotalAt(netWorth, netWorthAssets, monthIdx);
+  const netWorthPrev  = monthIdx > 0 ? netWorthTotalAt(netWorth, netWorthAssets, monthIdx - 1) : 0;
+  const netWorthChange = netWorthTotal === 0 && netWorthPrev === 0 ? null : netWorthTotal - netWorthPrev;
+  const owedOutstanding = moneyOwed.reduce((a,r) => a + ((r.amount||0) - (r.paid||0)), 0);
+  const owedCount = moneyOwed.length;
+  const owedToday = new Date().toISOString().slice(0,10);
+  const owedOverdue = moneyOwed.filter(r => r.dueBy && r.dueBy < owedToday && (r.amount||0) - (r.paid||0) > 0.005).length;
+
   return (
     <div className="fade">
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
@@ -1531,21 +1563,57 @@ function Dashboard({ monthIdx, fyStart, totalMonths, incomeStreams, savingsStrea
       <FYToolbar fyStart={fyStart} monthIdx={monthIdx} totalMonths={totalMonths} selectedFY={selFY} onSelectFY={setSelFY}
         viewMode={viewMode} onViewMode={setViewMode} onSettings={onFYSettings} />
 
-      {/* Stat Cards */}
-      <div style={{ display:"flex", gap:12, flexWrap:"wrap", marginBottom:20 }}>
-        <StatCard icon="💰" label={viewMode==="fy"?"FY Income":"Income"} value={fmt(viewMode==="fy"?fyMonths.reduce((a,mi)=>a+allMonthly(incomeStreams,incomeActual,mi),0):actInc)} delta={viewMode==="fy"?undefined:actInc-basInc}/>
+      {/* Money that moved. Every card opens the page behind it. */}
+      <div className="sl" style={{ marginBottom:9 }}>{viewMode==="fy" ? fyLabel(selFY, fyStart) : MONTHS[monthIdx]?.label}</div>
+      <div style={{ display:"flex", gap:12, flexWrap:"wrap", marginBottom:22 }}>
+        <StatCard icon="💰" label={viewMode==="fy"?"FY Income":"Income"}
+          value={fmt(viewMode==="fy"?fyMonths.reduce((a,mi)=>a+allMonthly(incomeStreams,incomeActual,mi),0):actInc)}
+          delta={viewMode==="fy"?undefined:actInc-basInc}
+          onOpen={()=>onOpenPage("income")} openLabel="Income — open the Income page"/>
         <StatCard icon="🏦" label={viewMode==="fy"?"FY Saved":"Total Saved"}
           value={fmt(viewMode==="fy"?fyActSav:actSav)}
           sub={`Baseline: ${fmt(viewMode==="fy"?fyBasSav:basSav)} · Forecast: ${fmt(viewMode==="fy"?fyFcSav:fcSav)}`}
-          delta={viewMode==="fy"?undefined:actSav-fcSav} deltaLabel="vs forecast"/>
+          delta={viewMode==="fy"?undefined:actSav-fcSav} deltaLabel="vs forecast"
+          onOpen={()=>onOpenPage("savings")} openLabel="Total saved — open the Savings page"/>
         <StatCard icon="🧾" label={viewMode==="fy"?"FY Spent":"Total Spent"}
           value={fmt(viewMode==="fy"?fyActExp:actExp)}
           sub={`Baseline: ${fmt(viewMode==="fy"?fyBasExp:basExp)} · Forecast: ${fmt(viewMode==="fy"?fyFcExp:fcExp)}`}
-          delta={viewMode==="fy"?undefined:actExp-fcExp} deltaLabel="vs forecast" posGood={false}/>
+          delta={viewMode==="fy"?undefined:actExp-fcExp} deltaLabel="vs forecast" posGood={false}
+          onOpen={()=>onOpenPage("expenditure")} openLabel="Total spent — open the Expenditure page"/>
+        {/* Net Remaining is derived and has no page of its own; it scrolls to the
+            flow diagram, which is the explanation of where the money went. */}
         <StatCard icon="✅" label="Net Remaining" value={fmt(netRemaining)} sub="After savings & spend"
-          valueTone={netRemaining < 0 ? T.danger : undefined}/>
+          valueTone={netRemaining < 0 ? T.danger : undefined}
+          onOpen={()=>sankeyRef.current?.scrollIntoView({ behavior:"smooth", block:"center" })}
+          openLabel="Net remaining — see where the money went"/>
       </div>
 
+      {/* Where you stand. A position, not a flow — separated so the two are not
+          read as the same kind of figure. */}
+      <div className="sl" style={{ marginBottom:9 }}>Where you stand</div>
+      <div style={{ display:"flex", gap:12, flexWrap:"wrap", marginBottom:22 }}>
+        <StatCard icon="◆" label="Net Worth" value={fmt(netWorthTotal)}
+          sub={netWorthChange === null ? "Nothing recorded yet"
+            : `${fmtS(netWorthChange)} on ${MONTHS[monthIdx-1]?.label}`}
+          onOpen={()=>onOpenPage("networth")} openLabel="Net worth — open the Net Worth page"/>
+        <StatCard icon="◷" label="Owed to You" value={fmt(owedOutstanding)}
+          sub={owedOverdue > 0 ? `${owedOverdue} past its due date` : `${owedCount} ${owedCount === 1 ? "loan" : "loans"} tracked`}
+          valueTone={owedOverdue > 0 ? T.danger : undefined}
+          onOpen={()=>onOpenPage("moneyowed")} openLabel="Owed to you — open the Money Owed page"/>
+      </div>
+
+      {/* Income Flow Sankey */}
+      <div ref={sankeyRef} className="card" style={{ padding:20, marginBottom:16 }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:4 }}>
+          <div style={{ fontFamily:"'Playfair Display'", fontSize:15, fontWeight:600 }}>Income Distribution</div>
+          <div style={{ fontSize:11, color:T.sub }}>{viewMode==="fy" ? fyLabel(selFY, fyStart) : MONTHS[monthIdx]?.label} · hover a flow to inspect</div>
+        </div>
+        <div style={{ fontSize:12, color:T.sub, marginBottom:16 }}>Where your income is being distributed across savings, investments and expenditure categories.</div>
+        <SankeyDiagram
+          incomeStreams={incomeStreams} savingsStreams={savingsStreams} expStreams={expStreams} savingsTypes={savingsTypes}
+          incomeActual={incomeActual} savingsWeekly={savingsWeekly} expWeekly={expWeekly}
+          monthIdx={monthIdx} fyMonths={fyMonths} viewMode={viewMode}/>
+      </div>
       {/* Gauge Dials */}
       <div className="card" style={{ padding:20, marginBottom:16 }}>
         <div style={{ fontFamily:"'Playfair Display'", fontSize:15, fontWeight:600, marginBottom:4 }}>
@@ -1578,26 +1646,6 @@ function Dashboard({ monthIdx, fyStart, totalMonths, incomeStreams, savingsStrea
         </div>
       </div>
 
-      {/* Combo Charts */}
-      <div style={{ marginBottom:16 }}>
-        <ComboChart title="Savings — Monthly vs Cumulative" streams={savingsStreams} weeklyData={savingsWeekly}
-          forecastData={savingsForecast} baselineData={baselineSavings} fyMonths={fyMonths} color={T.success} type="savings"/>
-      </div>
-      <ComboChart title="Expenditure — Monthly vs Cumulative" streams={expStreams} weeklyData={expWeekly}
-        forecastData={expForecast} baselineData={baselineExp} fyMonths={fyMonths} color={T.danger} type="expenditure"/>
-
-      {/* Income Flow Sankey */}
-      <div className="card" style={{ padding:20, marginTop:16 }}>
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:4 }}>
-          <div style={{ fontFamily:"'Playfair Display'", fontSize:15, fontWeight:600 }}>Income Distribution</div>
-          <div style={{ fontSize:11, color:T.sub }}>{viewMode==="fy" ? fyLabel(selFY, fyStart) : MONTHS[monthIdx]?.label} · hover a flow to inspect</div>
-        </div>
-        <div style={{ fontSize:12, color:T.sub, marginBottom:16 }}>Where your income is being distributed across savings, investments and expenditure categories.</div>
-        <SankeyDiagram
-          incomeStreams={incomeStreams} savingsStreams={savingsStreams} expStreams={expStreams} savingsTypes={savingsTypes}
-          incomeActual={incomeActual} savingsWeekly={savingsWeekly} expWeekly={expWeekly}
-          monthIdx={monthIdx} fyMonths={fyMonths} viewMode={viewMode}/>
-      </div>
     </div>
   );
 }
@@ -1737,6 +1785,12 @@ function IncomePage({ monthIdx, fyStart, totalMonths, streams, setStreams, basel
           </table>
         </div>
       )}
+
+      <div style={{ marginTop:16 }}>
+        <ComboChart title="Income — Monthly vs Cumulative" streams={streams} monthlyData={actualData}
+          baselineData={baselineData} forecastData={baselineData} fyMonths={fyMonths}
+          color={T.accent} type="income" showForecast={false}/>
+      </div>
     </div>
   );
 }
@@ -1785,15 +1839,19 @@ function SavingsPage({ monthIdx, fyStart, totalMonths, streams, setStreams, base
           </div>
         </div>
       ) : (
-        <div>
-          <div className="card" style={{ padding:20, marginBottom:16 }}>
-            <div className="sl" style={{ marginBottom:14 }}>{MONTHS[monthIdx]?.label}</div>
-            <WeeklyEntryTable streams={streams} weeklyData={weeklyData} baselineData={baselineData}
-              forecastData={forecastData} monthIdx={monthIdx} onUpdateWeekly={onUpdateWeekly}
-              onUpdateForecast={onUpdateForecast} type="savings"/>
-          </div>
+        <div className="card" style={{ padding:20, marginBottom:16 }}>
+          <div className="sl" style={{ marginBottom:14 }}>{MONTHS[monthIdx]?.label}</div>
+          <WeeklyEntryTable streams={streams} weeklyData={weeklyData} baselineData={baselineData}
+            forecastData={forecastData} monthIdx={monthIdx} onUpdateWeekly={onUpdateWeekly}
+            onUpdateForecast={onUpdateForecast} type="savings"/>
         </div>
       )}
+
+      {/* The year's trajectory, shown in both views — seeing it while entering
+          this month's figures is the point of moving it off the dashboard. */}
+      <ComboChart title="Savings — Monthly vs Cumulative" streams={streams} weeklyData={weeklyData}
+        forecastData={forecastData} baselineData={baselineData} fyMonths={fyMonths}
+        color={T.success} type="savings"/>
     </div>
   );
 }
@@ -1801,7 +1859,6 @@ function SavingsPage({ monthIdx, fyStart, totalMonths, streams, setStreams, base
 function ExpenditurePage({ monthIdx, fyStart, totalMonths, streams, setStreams, baselineData, forecastData, weeklyData,
   onUpdateWeekly, onUpdateForecast, onEditBaseline, expNotes, onUpdateExpNote, onFYSettings }) {
   const { MONTHS, getFYYear, getFYMonths } = useCalendar();
-  const { fmt, fmtAxis } = useMoney();
   const [catModal, setCatModal] = useState(false);
   const [viewMode, setViewMode] = useState("month");
   const [selFY, setSelFY] = useSyncedState(getFYYear(monthIdx, fyStart));
@@ -1827,20 +1884,6 @@ function ExpenditurePage({ monthIdx, fyStart, totalMonths, streams, setStreams, 
             <FYSummaryTable streams={streams} fyMonths={fyMonths} baselineData={baselineData}
               forecastData={forecastData} weeklyData={weeklyData} type="expenditure"/>
           </div>
-          <div className="card" style={{ padding:20 }}>
-            <div style={{ fontFamily:"'Playfair Display'", fontSize:14, fontWeight:600, marginBottom:14 }}>{fyLabel(selFY,fyStart)} — Category Trend</div>
-            <ResponsiveContainer width="100%" height={200}>
-              <LineChart data={fyMonths.map(mi=>({name:MONTHS[mi]?.short,Baseline:allMonthly(streams,baselineData,mi),Actual:allStreamsWeekly(streams,weeklyData,mi)}))}>
-                <CartesianGrid strokeDasharray="3 3" stroke={T.border}/>
-                <XAxis dataKey="name" tick={{fill:T.sub,fontSize:11}} axisLine={false} tickLine={false}/>
-                <YAxis tick={{fill:T.sub,fontSize:10}} axisLine={false} tickLine={false} tickFormatter={fmtAxis}/>
-                <Tooltip contentStyle={{background:T.card,border:`1px solid ${T.border}`,borderRadius:8,fontSize:12}} formatter={v=>fmt(v)}/>
-                <Legend wrapperStyle={{fontSize:11}}/>
-                <Line type="monotone" dataKey="Baseline" stroke={T.border} strokeDasharray="4 4" dot={false} strokeWidth={2}/>
-                <Line type="monotone" dataKey="Actual" stroke={T.danger} strokeWidth={2.5} dot={{r:3,fill:T.danger}}/>
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
         </div>
       ) : (
         <div className="card" style={{ padding:20 }}>
@@ -1851,6 +1894,12 @@ function ExpenditurePage({ monthIdx, fyStart, totalMonths, streams, setStreams, 
             notes={expNotes} onUpdateNote={onUpdateExpNote}/>
         </div>
       )}
+
+      <div style={{ marginTop:16 }}>
+        <ComboChart title="Expenditure — Monthly vs Cumulative" streams={streams} weeklyData={weeklyData}
+          forecastData={forecastData} baselineData={baselineData} fyMonths={fyMonths}
+          color={T.danger} type="expenditure"/>
+      </div>
     </div>
   );
 }
@@ -2979,7 +3028,8 @@ function PennywiseApp() {
           {page==="dashboard"&&<Dashboard monthIdx={monthIdx} fyStart={fyStart} totalMonths={totalMonths} incomeStreams={incomeStreams} savingsStreams={savingsStreams} expStreams={expStreams}
             baselineIncome={baselineIncome} baselineSavings={baselineSavings} baselineExp={baselineExp}
             incomeActual={incomeActual} savingsForecast={savingsForecast} savingsWeekly={savingsWeekly}
-            expForecast={expForecast} expWeekly={expWeekly} onFYSettings={()=>setFYSettingsOpen(true)} savingsTypes={savingsTypes}/>}
+            expForecast={expForecast} expWeekly={expWeekly} onFYSettings={()=>setFYSettingsOpen(true)} savingsTypes={savingsTypes}
+            netWorth={netWorth} netWorthAssets={netWorthAssets} moneyOwed={moneyOwed} onOpenPage={setPage}/>}
 
           {page==="income"&&<IncomePage monthIdx={monthIdx} fyStart={fyStart} totalMonths={totalMonths} streams={incomeStreams} setStreams={handleSetInc}
             baselineData={baselineIncome} actualData={incomeActual} onUpdate={updIncAct}
