@@ -365,59 +365,125 @@ function CurrencyModal({ current, onSave, onClose }) {
   );
 }
 // ─── MONTH PICKER ────────────────────────────────────────────────────────────
-// The header stepped one month at a time, so reaching a month a year away took
-// twelve presses. Month and year are separate selects: compact in the header,
-// and on a phone they open as the OS picker rather than a grid to scroll.
+// One control rather than two selects: pick the year along the top, then the
+// month from the grid beneath it. Browsing years inside the panel does not move
+// the app — only choosing a month does — so you can look around before landing.
 function MonthPicker({ monthIdx, totalMonths, onSelect }) {
-  const { MONTHS } = useCalendar();
+  const { MONTHS, epoch } = useCalendar();
+  const [open, setOpen] = useState(false);
+  const [viewYear, setViewYear] = useState(null);
+  const [todayIdx, setTodayIdx] = useState(-1);
+  const wrapRef = useRef(null);
 
-  // Which months exist in each year. The first and last years are usually
-  // partial — a timeline starting in April has no January — so the month list
-  // is built per year rather than assumed to be all twelve.
-  const byYear = useMemo(() => {
+  // month index by year+month, so the grid can ask "does this cell exist?"
+  const lookup = useMemo(() => {
     const map = new Map();
     for (let i = 0; i < totalMonths; i++) {
       const m = MONTHS[i];
-      if (!m) continue;
-      if (!map.has(m.absYear)) map.set(m.absYear, []);
-      map.get(m.absYear).push(i);
+      if (m) map.set(m.absYear * 12 + m.absMonth, i);
     }
     return map;
   }, [MONTHS, totalMonths]);
 
+  const years = useMemo(() => {
+    const set = new Set();
+    for (let i = 0; i < totalMonths; i++) if (MONTHS[i]) set.add(MONTHS[i].absYear);
+    return [...set].sort((a, b) => a - b);
+  }, [MONTHS, totalMonths]);
+
   const current = MONTHS[monthIdx];
-  const monthsThisYear = byYear.get(current?.absYear) || [];
+  const shownYear = viewYear ?? current?.absYear;
+  const idxFor = m => lookup.get(shownYear * 12 + m);
 
-  // Changing year keeps the same month where that year has it, and otherwise
-  // lands on the nearest one it does — so moving into a partial year never
-  // selects a month that is not there.
-  const changeYear = y => {
-    const list = byYear.get(y) || [];
-    if (!list.length) return;
-    const same = list.find(i => MONTHS[i].absMonth === current.absMonth);
-    if (same !== undefined) { onSelect(same); return; }
-    const nearest = list.reduce((best, i) =>
-      Math.abs(MONTHS[i].absMonth - current.absMonth) < Math.abs(MONTHS[best].absMonth - current.absMonth) ? i : best,
-      list[0]);
-    onSelect(nearest);
+  // Opening resets the view to the selected year, and reads the clock here
+  // rather than during render.
+  const toggle = () => {
+    if (!open) { setViewYear(current?.absYear); setTodayIdx(monthIndexOf(epoch)); }
+    setOpen(o => !o);
   };
+  const choose = i => { onSelect(i); setOpen(false); };
 
-  const sel = {
-    background: T.inputBg, border: `1px solid ${T.border}`, color: T.text,
-    fontFamily: "'DM Sans'", fontSize: 13, fontWeight: 600, borderRadius: 6,
-    padding: "5px 6px", cursor: "pointer", colorScheme: "dark",
-  };
+  useEffect(() => {
+    if (!open) return;
+    const onKey = e => {
+      if (e.key === "Escape") { setOpen(false); wrapRef.current?.querySelector("button")?.focus(); }
+    };
+    const onDown = e => { if (!wrapRef.current?.contains(e.target)) setOpen(false); };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onDown);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("mousedown", onDown);
+    };
+  }, [open]);
+
+  const atFirst = shownYear <= years[0];
+  const atLast = shownYear >= years[years.length - 1];
+
+  const yearBtn = disabled => ({
+    background: "transparent", border: "none", color: disabled ? T.border : T.sub,
+    cursor: disabled ? "default" : "pointer", fontSize: 17, lineHeight: 1,
+    padding: "2px 9px", borderRadius: 6,
+  });
 
   return (
-    <div style={{ display: "flex", gap: 6 }}>
-      <select aria-label="Month" value={monthIdx} style={{ ...sel, minWidth: 64 }}
-        onChange={e => onSelect(Number(e.target.value))}>
-        {monthsThisYear.map(i => <option key={i} value={i}>{MONTHS[i]?.short}</option>)}
-      </select>
-      <select aria-label="Year" value={current?.absYear ?? ""} style={{ ...sel, minWidth: 74 }}
-        onChange={e => changeYear(Number(e.target.value))}>
-        {[...byYear.keys()].map(y => <option key={y} value={y}>{y}</option>)}
-      </select>
+    <div ref={wrapRef} style={{ position: "relative" }}>
+      <button onClick={toggle} aria-haspopup="dialog" aria-expanded={open} title="Jump to a month"
+        style={{ fontSize: 14, fontWeight: 600, minWidth: 112, cursor: "pointer", background: T.inputBg,
+          border: `1px solid ${open ? T.accent : T.border}`, color: T.text, fontFamily: "'DM Sans'",
+          padding: "6px 12px", borderRadius: 8, display: "flex", alignItems: "center",
+          justifyContent: "center", gap: 7, transition: "border-color .15s" }}>
+        {current?.label}
+        <span aria-hidden="true" style={{ fontSize: 9, color: T.sub }}>▼</span>
+      </button>
+
+      {open && (
+        <div role="dialog" aria-label="Jump to a month"
+          style={{ position: "absolute", top: "calc(100% + 8px)", left: "50%", transform: "translateX(-50%)",
+            background: T.card, border: `1px solid ${T.border}`, borderRadius: 12, padding: 12, zIndex: 150,
+            width: 252, boxShadow: "0 10px 30px rgba(0,0,0,.5)" }}>
+
+          {/* Year along the top */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
+            marginBottom: 10, paddingBottom: 9, borderBottom: `1px solid ${T.border}` }}>
+            <button onClick={() => !atFirst && setViewYear(shownYear - 1)} disabled={atFirst}
+              aria-label="Previous year" style={yearBtn(atFirst)}>‹</button>
+            <div style={{ fontFamily: "'Playfair Display'", fontSize: 16, fontWeight: 600, color: T.accent }}>
+              {shownYear}
+            </div>
+            <button onClick={() => !atLast && setViewYear(shownYear + 1)} disabled={atLast}
+              aria-label="Next year" style={yearBtn(atLast)}>›</button>
+          </div>
+
+          {/* Months underneath. Every month keeps its cell so the grid holds its
+              shape; the ones outside the tracked timeline are simply not
+              selectable, rather than leaving holes in the layout. */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 5 }}>
+            {MONTH_NAMES.map((label, m) => {
+              const i = idxFor(m);
+              const exists = i !== undefined;
+              const selected = exists && i === monthIdx;
+              const isToday = exists && i === todayIdx;
+              return (
+                <button key={label} disabled={!exists}
+                  onClick={() => exists && choose(i)}
+                  aria-current={selected ? "true" : undefined}
+                  title={!exists ? `${label} ${shownYear} is outside your timeline`
+                       : isToday ? `${label} ${shownYear} — the month you are in` : undefined}
+                  style={{ padding: "8px 0", borderRadius: 6, fontSize: 12, fontFamily: "'DM Sans'",
+                    cursor: exists ? "pointer" : "default",
+                    fontWeight: selected ? 700 : 400,
+                    background: selected ? "rgba(212,168,83,.16)" : exists ? T.inputBg : "transparent",
+                    border: `1px solid ${selected ? T.accent : isToday ? T.blue : "transparent"}`,
+                    color: selected ? T.accent : exists ? T.text : T.border,
+                    opacity: exists ? 1 : .55 }}>
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
