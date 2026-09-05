@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { MAX_MONTHS } from "./calendar.js";
 import {
   blankWeekly, weeklyTotal, allStreamsWeekly, monthlyVal, allMonthly,
-  applyStreams, applyNotes,
+  applyStreams, applyNotes, fyElapsed,
 } from "./data.js";
 
 const weeklyWith = (mi, weeks) => {
@@ -113,5 +113,26 @@ describe("applyNotes", () => {
   it("does not invent empty note maps for new categories", () => {
     const out = applyNotes({}, ["Fuel"], {});
     expect(out.Fuel).toBeUndefined();
+  });
+});
+
+describe("fyElapsed", () => {
+  const fy = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];   // Apr–Mar of one year
+
+  it("counts months up to the cursor in the year you are in", () => {
+    expect(fyElapsed(fy, 8, 2026, 2026)).toEqual([3, 4, 5, 6, 7, 8]);
+  });
+
+  it("treats a past year as complete", () => {
+    expect(fyElapsed(fy, 8, 2025, 2026)).toEqual(fy);
+  });
+
+  it("treats a future year as not started", () => {
+    expect(fyElapsed(fy, 8, 2027, 2026)).toEqual([]);
+  });
+
+  it("counts the first month once the cursor reaches it", () => {
+    expect(fyElapsed(fy, 3, 2026, 2026)).toEqual([3]);
+    expect(fyElapsed(fy, 2, 2026, 2026)).toEqual([]);
   });
 });

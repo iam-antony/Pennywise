@@ -5,7 +5,7 @@ import { MAX_MONTHS, MONTH_NAMES, WEEKS, LEGACY_EPOCH, makeCalendar, fyLabel,
   epochForNewProfile, monthIndexOf, shiftEpoch } from "./lib/calendar.js";
 import { CURRENCIES, flagEmoji } from "./lib/currencies.js";
 import { makeFormatters } from "./lib/money.js";
-import { isInvestment, inferSavingsKind, withSavingsKinds, netWorthAt, netWorthTotalAt, migrateNetWorth, shiftAllArrays, shiftAllWeekly, shiftNotes, wouldLoseData, DEFAULT_INCOME_STREAMS, DEFAULT_SAVINGS_STREAMS, DEFAULT_EXP_STREAMS, makeBaselineIncome, makeBaselineSavings, makeBaselineExp, NET_WORTH_ASSETS, blankWeekly, weeklyTotal, allStreamsWeekly, monthlyVal, allMonthly, applyStreams, applyNotes } from "./lib/data.js";
+import { isInvestment, inferSavingsKind, withSavingsKinds, netWorthAt, netWorthTotalAt, migrateNetWorth, shiftAllArrays, shiftAllWeekly, shiftNotes, wouldLoseData, DEFAULT_INCOME_STREAMS, DEFAULT_SAVINGS_STREAMS, DEFAULT_EXP_STREAMS, makeBaselineIncome, makeBaselineSavings, makeBaselineExp, NET_WORTH_ASSETS, blankWeekly, weeklyTotal, allStreamsWeekly, monthlyVal, allMonthly, fyElapsed, applyStreams, applyNotes } from "./lib/data.js";
 import { save, readAll, writeAll, clearAll, classifyVersion, parseBackup, downloadBackupFile, DATA_VER } from "./lib/storage.js";
 import { isFormula, parseEntry } from "./lib/expr.js";
 import { T, CC, STYLES } from "./theme.js";
@@ -916,6 +916,63 @@ function BaselineEditorModal({ section, streams, data, fyStart, totalMonths, onS
 // `target` is what should have been put aside by now; `annual` is the whole
 // year. The ring measures pace against the former — measuring against the full
 // year meant someone exactly on plan still read as behind for eleven months.
+// A bullet bar: how much of the target is done, and — part-way through a year
+// — whether that is where you should be by now. This replaces the pair of gauge
+// dials on the dashboard. A dial reads as a speedometer when the thing being
+// shown is really a percentage, and two of them already filled the row, so
+// there was nowhere to put spending without the section becoming a page of its
+// own. Bars stack, so the third fits.
+//
+// `mark` is the figure to judge against: pro-rata for a year in progress, and
+// null for a single month, where the month's own baseline is the comparison.
+// The tick is drawn only when the mark sits short of the target, since on a
+// finished period the two are the same line.
+function PaceBar({ label, icon, actual, target, mark, color, lowerIsBetter = false, sub }) {
+  const { fmt } = useMoney();
+  const has = target > 0;
+  const pct = has ? actual / target : 0;
+  const markPct = has && mark != null ? mark / target : null;
+  // Settle to the penny before judging, so a rounding tail is not read as "over".
+  const raw = mark == null ? actual - target : actual - mark;
+  const off = Math.abs(raw) < 0.005 ? 0 : raw;
+  const good = off === 0 ? true : lowerIsBetter ? off < 0 : off > 0;
+  const tone = !has || off === 0 ? T.sub : good ? T.success : lowerIsBetter ? T.danger : T.warning;
+  const status = !has ? "No target set"
+    : off === 0 ? "On track"
+    : lowerIsBetter ? `${fmt(Math.abs(off))} ${off > 0 ? "over" : "under"}`
+    : `${fmt(Math.abs(off))} ${off > 0 ? "ahead" : "behind"}`;
+  // Overspending is the one case where the bar's own colour should carry the
+  // warning — a full green bar for a blown budget reads as success.
+  const fillColor = lowerIsBetter && off > 0 ? T.danger : color;
+  const overColor = lowerIsBetter ? T.danger : T.success;
+
+  return (
+    <div className="pace-row">
+      <div className="pace-head">
+        <span className="pace-label">{icon} {label}</span>
+        <span>
+          <b style={{ color: fillColor }}>{fmt(actual)}</b>
+          <span style={{ color:T.sub }}> {has ? `of ${fmt(target)}` : ""}</span>
+        </span>
+      </div>
+      <div className="pace-track" role="progressbar"
+        aria-valuemin={0} aria-valuemax={Math.round(target)} aria-valuenow={Math.round(actual)}
+        aria-valuetext={`${fmt(actual)}${has ? ` of ${fmt(target)}` : ""} — ${status}`}
+        aria-label={label}>
+        <div className="pace-fill" style={{ width:`${Math.max(0, Math.min(pct, 1)) * 100}%`, background: fillColor }}/>
+        {pct > 1 && <div className="pace-over" title={lowerIsBetter ? "Over target" : "Past target"}
+          style={{ background: overColor, boxShadow: `-2px 0 5px ${overColor}` }}/>}
+        {markPct != null && markPct > 0.005 && markPct < 0.995 &&
+          <div className="pace-mark" style={{ left:`${markPct * 100}%` }} title={`Expected by now: ${fmt(mark)}`}/>}
+      </div>
+      <div className="pace-head" style={{ marginTop:5 }}>
+        <span style={{ color:T.sub, fontSize:11 }}>{sub}</span>
+        <span style={{ color:tone, fontWeight:600, fontSize:11 }}>{status}</span>
+      </div>
+    </div>
+  );
+}
+
 function GaugeDial({ label, actual, target, annual, color, sub, icon }) {
   const { fmt } = useMoney();
   const raw = target > 0 ? actual/target : 0;
@@ -1530,9 +1587,7 @@ function Dashboard({ monthIdx, fyStart, totalMonths, incomeStreams, savingsStrea
   // past year counted only the months below today's index.
   const currentFY = getFYYear(monthIdx, fyStart);
   const fyState = selFY === currentFY ? "current" : selFY < currentFY ? "past" : "future";
-  const ytd = fyState === "current" ? fyMonths.filter(mi => mi <= monthIdx)
-            : fyState === "past"    ? fyMonths
-            : [];
+  const ytd = fyElapsed(fyMonths, monthIdx, selFY, currentFY);
 
   const savYTD = ytd.reduce((a,mi)=>a+allStreamsWeekly(pureStreams,savingsWeekly,mi),0);
   const invYTD = ytd.reduce((a,mi)=>a+allStreamsWeekly(investStreams,savingsWeekly,mi),0);
@@ -1542,7 +1597,28 @@ function Dashboard({ monthIdx, fyStart, totalMonths, incomeStreams, savingsStrea
   const invTgt = fyMonths.reduce((a,mi)=>a+allMonthly(investStreams,baselineSavings,mi),0);
   const savDue = ytd.reduce((a,mi)=>a+allMonthly(pureStreams,baselineSavings,mi),0);
   const invDue = ytd.reduce((a,mi)=>a+allMonthly(investStreams,baselineSavings,mi),0);
+  const expDue = ytd.reduce((a,mi)=>a+allMonthly(expStreams,baselineExp,mi),0);
   const frac   = fyMonths.length > 0 ? ytd.length / fyMonths.length : 0;
+
+  // Pace follows the Monthly/FY toggle above it. Reading a month's spending
+  // against a year's target — or the reverse — is exactly the mistake a bar
+  // makes easy, so both halves of the page always describe the same period.
+  // Within a single month there is no pro-rata mark: the app records which
+  // week money moved, not which day, so there is no honest "expected by now".
+  const fyPace = viewMode === "fy";
+  const paceOf = (list, weekly, baseline, ytdActual, ytdTarget, ytdMark) => fyPace
+    ? { actual: ytdActual, target: ytdTarget, mark: ytdMark }
+    : { actual: allStreamsWeekly(list, weekly, monthIdx),
+        target: allMonthly(list, baseline, monthIdx), mark: null };
+  const savPace = paceOf(pureStreams,   savingsWeekly, baselineSavings, savYTD,   savTgt,   savDue);
+  const invPace = paceOf(investStreams, savingsWeekly, baselineSavings, invYTD,   invTgt,   invDue);
+  const expPace = paceOf(expStreams,    expWeekly,     baselineExp,     fyActExp, fyBasExp, expDue);
+
+  // Categories are unlimited, so the caption cannot be a full list — past a
+  // few names it would set the height of this section rather than the bars do.
+  const catSub = (list, empty) => list.length === 0 ? empty
+    : list.length <= 3 ? list.join(" · ")
+    : `${list.slice(0, 2).join(" · ")} + ${list.length - 2} more`;
   const netRemaining = actInc - actSav - actExp;
 
   // Position figures for the second row of cards.
@@ -1614,38 +1690,30 @@ function Dashboard({ monthIdx, fyStart, totalMonths, incomeStreams, savingsStrea
           incomeActual={incomeActual} savingsWeekly={savingsWeekly} expWeekly={expWeekly}
           monthIdx={monthIdx} fyMonths={fyMonths} viewMode={viewMode}/>
       </div>
-      {/* Gauge Dials */}
+      {/* Pace. Three bars, whatever the category count — per-category detail
+          lives on the tab behind each one. */}
       <div className="card" style={{ padding:20, marginBottom:16 }}>
         <div style={{ fontFamily:"'Playfair Display'", fontSize:15, fontWeight:600, marginBottom:4 }}>
-          {fyState === "current" ? "Year-to-Date Progress" : fyState === "past" ? "Full Year Result" : "Planned Year"}
+          {!fyPace ? "This Month's Pace"
+            : fyState === "current" ? "Year-to-Date Pace"
+            : fyState === "past" ? "Full Year Result" : "Planned Year"}
         </div>
         <div style={{ fontSize:11, color:T.sub, marginBottom:18 }}>
-          {fyState === "current" && <>{Math.round(frac*100)}% through {fyLabel(selFY, fyStart)} · 100% means on plan for this point in the year</>}
-          {fyState === "past"    && <>{fyLabel(selFY, fyStart)} is complete · measured against the full year's baseline</>}
-          {fyState === "future"  && <>{fyLabel(selFY, fyStart)} has not started · showing the plan, with nothing recorded yet</>}
+          {!fyPace && <>{MONTHS[monthIdx]?.label} against its baseline · switch to FY for the year's pace</>}
+          {fyPace && fyState === "current" && <>{Math.round(frac*100)}% through {fyLabel(selFY, fyStart)} · the tick on each bar is where you should be by now</>}
+          {fyPace && fyState === "past"    && <>{fyLabel(selFY, fyStart)} is complete · measured against the full year's baseline</>}
+          {fyPace && fyState === "future"  && <>{fyLabel(selFY, fyStart)} has not started · showing the plan, with nothing recorded yet</>}
         </div>
-        <div className="gauge-grid" style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:0 }}>
-          <div style={{ display:"flex", flexDirection:"column", alignItems:"center", borderRight:`1px solid ${T.border}`, paddingRight:16 }}>
-            <GaugeDial label="Savings" icon="🏦" actual={savYTD} target={savDue} annual={savTgt} color={T.success}
-              sub={pureStreams.join(" · ") || "No savings pots — mark one in Categories"}/>
-            <div style={{ display:"flex", gap:18, marginTop:6, fontSize:12 }}>
-              <div style={{ textAlign:"center" }}><div style={{ color:T.sub,fontSize:10,textTransform:"uppercase",letterSpacing:".06em" }}>{fyState === "future" ? "Saved" : "YTD Actual"}</div><div style={{ fontWeight:700,color:T.success }}>{fmt(savYTD)}</div></div>
-              <div style={{ textAlign:"center" }}><div style={{ color:T.sub,fontSize:10,textTransform:"uppercase",letterSpacing:".06em" }}>Expected by now</div><div style={{ fontWeight:700 }}>{fmt(savDue)}</div></div>
-              <div style={{ textAlign:"center" }}><div style={{ color:T.sub,fontSize:10,textTransform:"uppercase",letterSpacing:".06em" }}>Annual Target</div><div style={{ fontWeight:700 }}>{fmt(savTgt)}</div></div>
-            </div>
-          </div>
-          <div style={{ display:"flex", flexDirection:"column", alignItems:"center", paddingLeft:16 }}>
-            <GaugeDial label="Investments" icon="📈" actual={invYTD} target={invDue} annual={invTgt} color={T.blue}
-              sub={investStreams.join(" · ") || "No investments — mark one in Categories"}/>
-            <div style={{ display:"flex", gap:18, marginTop:6, fontSize:12 }}>
-              <div style={{ textAlign:"center" }}><div style={{ color:T.sub,fontSize:10,textTransform:"uppercase",letterSpacing:".06em" }}>{fyState === "future" ? "Invested" : "YTD Actual"}</div><div style={{ fontWeight:700,color:T.blue }}>{fmt(invYTD)}</div></div>
-              <div style={{ textAlign:"center" }}><div style={{ color:T.sub,fontSize:10,textTransform:"uppercase",letterSpacing:".06em" }}>Expected by now</div><div style={{ fontWeight:700 }}>{fmt(invDue)}</div></div>
-              <div style={{ textAlign:"center" }}><div style={{ color:T.sub,fontSize:10,textTransform:"uppercase",letterSpacing:".06em" }}>Annual Target</div><div style={{ fontWeight:700 }}>{fmt(invTgt)}</div></div>
-            </div>
-          </div>
-        </div>
+        <PaceBar label="Savings" icon="🏦" color={T.success}
+          actual={savPace.actual} target={savPace.target} mark={savPace.mark}
+          sub={catSub(pureStreams, "No savings pots — mark one in Categories")}/>
+        <PaceBar label="Investments" icon="📈" color={T.blue}
+          actual={invPace.actual} target={invPace.target} mark={invPace.mark}
+          sub={catSub(investStreams, "No investments — mark one in Categories")}/>
+        <PaceBar label="Spending" icon="🧾" color={T.warning} lowerIsBetter
+          actual={expPace.actual} target={expPace.target} mark={expPace.mark}
+          sub={catSub(expStreams, "No spending categories yet")}/>
       </div>
-
     </div>
   );
 }
@@ -1804,6 +1872,15 @@ function SavingsPage({ monthIdx, fyStart, totalMonths, streams, setStreams, base
   const [selFY, setSelFY] = useSyncedState(getFYYear(monthIdx, fyStart));
   const fyMonths = getFYMonths(selFY, fyStart, totalMonths);
 
+  // Every savings category together, pots and investments alike — the split
+  // between the two is the dashboard's job; this page is about the total.
+  const currentFY = getFYYear(monthIdx, fyStart);
+  const ytd       = fyElapsed(fyMonths, monthIdx, selFY, currentFY);
+  const ytdActual = ytd.reduce((a,mi)=>a+allStreamsWeekly(streams, weeklyData, mi), 0);
+  const ytdDue    = ytd.reduce((a,mi)=>a+allMonthly(streams, baselineData, mi), 0);
+  const annual    = fyMonths.reduce((a,mi)=>a+allMonthly(streams, baselineData, mi), 0);
+  const started   = ytd.length > 0;
+
   return (
     <div className="fade">
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
@@ -1846,6 +1923,24 @@ function SavingsPage({ monthIdx, fyStart, totalMonths, streams, setStreams, base
             onUpdateForecast={onUpdateForecast} type="savings"/>
         </div>
       )}
+
+      {/* The dial, kept off the dashboard but at home here. */}
+      <div className="card" style={{ padding:20, marginBottom:16, display:"flex",
+        flexDirection:"column", alignItems:"center" }}>
+        <div style={{ fontFamily:"'Playfair Display'", fontSize:15, fontWeight:600, marginBottom:4, alignSelf:"flex-start" }}>
+          {started ? (ytd.length === fyMonths.length ? "Full Year Result" : "Year-to-Date Progress") : "Planned Year"}
+        </div>
+        <div style={{ fontSize:11, color:T.sub, marginBottom:10, alignSelf:"flex-start" }}>
+          {fyLabel(selFY, fyStart)} · all savings categories together
+        </div>
+        <GaugeDial label="Savings" icon="🏦" actual={ytdActual} target={ytdDue} annual={annual}
+          color={T.success} sub={`${streams.length} ${streams.length === 1 ? "category" : "categories"}`}/>
+        <div style={{ display:"flex", gap:18, marginTop:6, fontSize:12 }}>
+          <div style={{ textAlign:"center" }}><div style={{ color:T.sub,fontSize:10,textTransform:"uppercase",letterSpacing:".06em" }}>{started ? "YTD Actual" : "Saved"}</div><div style={{ fontWeight:700,color:T.success }}>{fmt(ytdActual)}</div></div>
+          <div style={{ textAlign:"center" }}><div style={{ color:T.sub,fontSize:10,textTransform:"uppercase",letterSpacing:".06em" }}>Expected by now</div><div style={{ fontWeight:700 }}>{fmt(ytdDue)}</div></div>
+          <div style={{ textAlign:"center" }}><div style={{ color:T.sub,fontSize:10,textTransform:"uppercase",letterSpacing:".06em" }}>Annual Target</div><div style={{ fontWeight:700 }}>{fmt(annual)}</div></div>
+        </div>
+      </div>
 
       {/* The year's trajectory, shown in both views — seeing it while entering
           this month's figures is the point of moving it off the dashboard. */}

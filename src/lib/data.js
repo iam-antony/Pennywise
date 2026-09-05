@@ -62,6 +62,16 @@ const allStreamsWeekly = (streams, wd, mi) => streams.reduce((a, s) => a + weekl
 const monthlyVal = (d, s, mi) => d?.[s]?.[mi] || 0;
 const allMonthly = (streams, d, mi) => streams.reduce((a, s) => a + monthlyVal(d, s, mi), 0);
 
+// Which months of a financial year have actually happened. A year in the past
+// is complete; one in the future has not started; the current one runs up to
+// the month cursor. Both the dashboard and the savings page measure pace
+// against this, so it lives here rather than being written out twice.
+function fyElapsed(fyMonths, monthIdx, selFY, currentFY) {
+  if (selFY < currentFY) return fyMonths;
+  if (selFY > currentFY) return [];
+  return fyMonths.filter(mi => mi <= monthIdx);
+}
+
 // Apply a category-list change to a data object.
 // `origin` maps each current label to the label its data is stored under, so a
 // rename carries the history across instead of orphaning it. Data belonging to
@@ -170,4 +180,4 @@ function wouldLoseData(series, n) {
 }
 
 export { netWorthAt, netWorthTotalAt, migrateNetWorth, shiftArray, shiftWeekly, shiftNotes, shiftAllArrays, shiftAllWeekly, wouldLoseData,
-  inferSavingsKind, savingsKind, isInvestment, withSavingsKinds, DEFAULT_INCOME_STREAMS, DEFAULT_SAVINGS_STREAMS, DEFAULT_EXP_STREAMS, makeBaselineIncome, makeBaselineSavings, makeBaselineExp, NET_WORTH_ASSETS, blankWeekly, weeklyTotal, allStreamsWeekly, monthlyVal, allMonthly, applyStreams, applyNotes };
+  inferSavingsKind, savingsKind, isInvestment, withSavingsKinds, DEFAULT_INCOME_STREAMS, DEFAULT_SAVINGS_STREAMS, DEFAULT_EXP_STREAMS, makeBaselineIncome, makeBaselineSavings, makeBaselineExp, NET_WORTH_ASSETS, blankWeekly, weeklyTotal, allStreamsWeekly, monthlyVal, allMonthly, fyElapsed, applyStreams, applyNotes };

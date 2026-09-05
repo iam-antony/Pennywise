@@ -79,6 +79,22 @@ tr:last-child td{border-bottom:none}
 .stat-card-link:hover{border-color:${T.accent};transform:translateY(-2px)}
 .stat-card-go{position:absolute;top:16px;right:16px;color:${T.border};font-size:15px;transition:color .15s}
 .stat-card-link:hover .stat-card-go{color:${T.accent}}
+
+/* Pace bars — the dashboard's progress section. Fixed height per row, so the
+   section stays the same size however many categories a profile has. */
+.pace-row{margin-bottom:16px}
+.pace-row:last-child{margin-bottom:0}
+.pace-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;font-size:12px;margin-bottom:6px}
+.pace-label{font-weight:600}
+.pace-track{position:relative;height:10px;border-radius:5px;background:${T.inputBg};border:1px solid ${T.border};overflow:hidden}
+.pace-fill{height:100%;border-radius:4px;transition:width .35s ease}
+/* Past the end of the track: a cap in the warning colour, since the fill has
+   nowhere left to grow. */
+.pace-over{position:absolute;top:0;right:0;width:5px;height:100%}
+/* Where you should be by now. Drawn over the fill, so it reads whether you are
+   short of it or past it. */
+.pace-mark{position:absolute;top:-2px;width:2px;height:14px;background:${T.text};opacity:.85;border-radius:1px}
+@media (prefers-reduced-motion: reduce){.pace-fill{transition:none}}
 .fy-tab{padding:6px 14px;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;border:1px solid ${T.border};color:${T.sub};background:transparent;transition:all .15s;white-space:nowrap}
 .fy-tab.active{background:rgba(212,168,83,.15);border-color:${T.accent};color:${T.accent};font-weight:600}
 .view-toggle{display:flex;background:${T.inputBg};border:1px solid ${T.border};border-radius:8px;padding:3px;gap:2px}
