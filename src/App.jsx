@@ -7,7 +7,7 @@ import { CURRENCIES, flagEmoji } from "./lib/currencies.js";
 import { makeFormatters } from "./lib/money.js";
 import { isInvestment, inferSavingsKind, withSavingsKinds, netWorthAt, netWorthTotalAt, migrateNetWorth, shiftAllArrays, shiftAllWeekly, shiftNotes, wouldLoseData, DEFAULT_INCOME_STREAMS, DEFAULT_SAVINGS_STREAMS, DEFAULT_EXP_STREAMS, makeBaselineIncome, makeBaselineSavings, makeBaselineExp, NET_WORTH_ASSETS, blankWeekly, weeklyTotal, allStreamsWeekly, monthlyVal, allMonthly, fyElapsed, applyStreams, applyNotes } from "./lib/data.js";
 import { save, readAll, writeAll, clearAll, classifyVersion, parseBackup, downloadBackupFile, DATA_VER } from "./lib/storage.js";
-import { isFormula, parseEntry } from "./lib/expr.js";
+import { isFormula, parseEntry, evalExpr } from "./lib/expr.js";
 import { T, CC, STYLES } from "./theme.js";
 
 const CurrencyContext = createContext(makeFormatters(CURRENCIES[0]));
@@ -18,6 +18,14 @@ const useMoney = () => useContext(CurrencyContext);
 // than being module-level constants pinned to January 2026.
 const CalendarContext = createContext(makeCalendar(LEGACY_EPOCH));
 const useCalendar = () => useContext(CalendarContext);
+
+// Typing "70+30" into a cell stored 100 and threw the working away, so coming
+// back to add another receipt meant remembering what the 100 was made of. The
+// expression is now kept beside the figure, keyed by cell, and handed back when
+// the cell is focused. One flat map rather than a parallel copy of every data
+// shape - the cells that take formulas sit in six different structures.
+const FormulaContext = createContext({ map: {}, set: () => {} });
+const useFormulas = () => useContext(FormulaContext);
 
 // Dialog behaviour every modal needs and none of them had: Escape closes it,
 // focus moves inside on open and is kept there while it is up, and it returns
@@ -73,8 +81,9 @@ function useSyncedState(derived, token) {
 }
 
 // ─── REUSABLE ATOMS ───────────────────────────────────────────────────────────
-function NumInput({ value, onChange, className = "inp inp-num", disabled, label }) {
+function NumInput({ value, onChange, className = "inp inp-num", disabled, label, cellId }) {
   const { separators } = useMoney();
+  const formulas = useFormulas();
   const display = value != null && value !== 0 ? String(value) : "";
   const [raw, setRaw]       = useState(display);
   const [focused, setFocus] = useState(false);
@@ -86,6 +95,28 @@ function NumInput({ value, onChange, className = "inp inp-num", disabled, label 
   const result  = parseEntry(raw, separators);
   const valid   = result !== null;
 
+  // Working is only offered back while it still adds up to what the cell shows.
+  // Anything that moved the figure by another route - a restore, a shifted
+  // timeline, a renamed category - leaves it stale, and stale reads worse than
+  // nothing at all.
+  const saved = cellId ? formulas.map[cellId] : undefined;
+  const savedFits = saved != null && evalExpr(saved) === (value || 0);
+
+  // Focusing hands the expression back, so another figure can be added to it.
+  const begin = e => {
+    setFocus(true);
+    if (!savedFits) return;
+    setRaw(saved);
+    const el = e.currentTarget;
+    // After React has painted the restored text, not before.
+    requestAnimationFrame(() => {
+      // Only if the caret has not been moved or a selection made in the
+      // meantime — a fast select-all should not be undone by this.
+      if (el.value !== saved || el.selectionStart !== el.selectionEnd) return;
+      try { el.setSelectionRange(saved.length, saved.length); } catch { /* not selectable */ }
+    });
+  };
+
   const commit = () => {
     setFocus(false);
     // Unreadable input is rejected rather than coerced to 0, which would
@@ -94,6 +125,9 @@ function NumInput({ value, onChange, className = "inp inp-num", disabled, label 
       setRaw(value != null && value !== 0 ? String(value) : "");
       return;
     }
+    // Keep the working only when there is working to keep; typing a plain
+    // number over a formula forgets it.
+    if (cellId) formulas.set(cellId, formula ? raw.trim() : null);
     setRaw(result === 0 ? "" : String(result));
     onChange(result);
   };
@@ -109,9 +143,10 @@ function NumInput({ value, onChange, className = "inp inp-num", disabled, label 
         className={className}
         value={raw}
         aria-label={label}
+        title={!focused && savedFits ? `= ${saved}` : undefined}
         disabled={disabled}
         onChange={e => setRaw(e.target.value)}
-        onFocus={() => setFocus(true)}
+        onFocus={begin}
         onBlur={commit}
         onKeyDown={e => { if (e.key === "Enter") { e.target.blur(); } }}
         style={{
@@ -120,6 +155,11 @@ function NumInput({ value, onChange, className = "inp inp-num", disabled, label 
           fontFamily:"'DM Sans',sans-serif",
         }}
       />
+      {!focused && savedFits && (
+        <span aria-hidden="true" style={{ position:"absolute", top:0, right:3, fontSize:9,
+          lineHeight:"14px", color:T.sub, opacity:.8, pointerEvents:"none" }}>ƒ</span>
+      )}
+
       {/* Live preview bubble — shows the result of a formula, or why input is rejected */}
       {focused && (formula || !valid) && (
         <div style={{
@@ -140,8 +180,9 @@ function NumInput({ value, onChange, className = "inp inp-num", disabled, label 
 }
 
 // Compact formula-aware cell for the baseline editor grid
-function FormulaCell({ value, onCommit, placeholder, style, label }) {
+function FormulaCell({ value, onCommit, placeholder, style, label, cellId }) {
   const { separators } = useMoney();
+  const formulas = useFormulas();
   const display = value != null && value !== "" && value !== 0 ? String(value) : "";
   const [raw, setRaw]       = useState(display);
   const [focused, setFocus] = useState(false);
@@ -152,6 +193,28 @@ function FormulaCell({ value, onCommit, placeholder, style, label }) {
   const result  = parseEntry(raw, separators);
   const valid   = result !== null;
 
+  // Working is only offered back while it still adds up to what the cell shows.
+  // Anything that moved the figure by another route - a restore, a shifted
+  // timeline, a renamed category - leaves it stale, and stale reads worse than
+  // nothing at all.
+  const saved = cellId ? formulas.map[cellId] : undefined;
+  const savedFits = saved != null && evalExpr(saved) === (value || 0);
+
+  // Focusing hands the expression back, so another figure can be added to it.
+  const begin = e => {
+    setFocus(true);
+    if (!savedFits) return;
+    setRaw(saved);
+    const el = e.currentTarget;
+    // After React has painted the restored text, not before.
+    requestAnimationFrame(() => {
+      // Only if the caret has not been moved or a selection made in the
+      // meantime — a fast select-all should not be undone by this.
+      if (el.value !== saved || el.selectionStart !== el.selectionEnd) return;
+      try { el.setSelectionRange(saved.length, saved.length); } catch { /* not selectable */ }
+    });
+  };
+
   const commit = () => {
     setFocus(false);
     // Reject what cannot be read rather than writing 0 over a real figure.
@@ -159,6 +222,7 @@ function FormulaCell({ value, onCommit, placeholder, style, label }) {
       setRaw(value != null && value !== "" && value !== 0 ? String(value) : "");
       return;
     }
+    if (cellId) formulas.set(cellId, formula ? raw.trim() : null);
     setRaw(result ? String(result) : "");
     onCommit(result);
   };
@@ -166,9 +230,10 @@ function FormulaCell({ value, onCommit, placeholder, style, label }) {
   return (
     <div style={{ position:"relative", display:"inline-block" }}>
       <input className="bl-cell" type="text" value={raw} placeholder={placeholder || ""} aria-label={label}
+        title={!focused && savedFits ? `= ${saved}` : undefined}
         style={{ ...style, ...(focused && (formula || !valid) ? { borderColor: valid ? T.accent : T.danger } : {}) }}
         onChange={e => setRaw(e.target.value)}
-        onFocus={() => setFocus(true)}
+        onFocus={begin}
         onBlur={commit}
         onKeyDown={e => { if (e.key === "Enter") e.target.blur(); }} />
       {focused && (formula || !valid) && (
@@ -893,6 +958,7 @@ function BaselineEditorModal({ section, streams, data, fyStart, totalMonths, onS
                     {fyMonths.map(mi => (
                       <td key={mi}>
                         <FormulaCell value={draft[s]?.[mi] || ""}
+                          cellId={`bl.${section}.${s}.${mi}`}
                           onCommit={v => update(s, mi, v)} />
                       </td>
                     ))}
@@ -1307,12 +1373,12 @@ function WeeklyEntryTable({ streams, weeklyData, baselineData, forecastData, mon
                     <td>{s}</td>
                     <td style={{ color:T.sub }}>{fmt(baseline)}</td>
                     <td style={{ color:T.blue }}>
-                      <NumInput value={forecast} className="inp inp-num" onChange={v => onUpdateForecast(s, monthIdx, v)} />
+                      <NumInput value={forecast} className="inp inp-num" cellId={`fc.${type}.${s}.${monthIdx}`} onChange={v => onUpdateForecast(s, monthIdx, v)} />
                     </td>
                     <td style={{ color }}>
                       {WEEKS.some(w=>weeklyData?.[s]?.[monthIdx]?.[w]>0)
                         ? <span style={{ fontWeight:600 }}>{fmt(actual)}</span>
-                        : <NumInput value={actual} onChange={v => onUpdateWeekly(s,monthIdx,1,v)} />}
+                        : <NumInput value={actual} cellId={`wk.${type}.${s}.${monthIdx}.1`} onChange={v => onUpdateWeekly(s,monthIdx,1,v)} />}
                     </td>
                     <td><span className={good?(vb>=0?"vpos":"vneg"):(vb<=0?"vpos":"vneg")} style={{ fontSize:12 }}>{fmtS(vb)}</span></td>
                     <td><span className={good?(vf>=0?"vpos":"vneg"):(vf<=0?"vpos":"vneg")} style={{ fontSize:12 }}>{fmtS(vf)}</span></td>
@@ -1359,7 +1425,7 @@ function WeeklyEntryTable({ streams, weeklyData, baselineData, forecastData, mon
                   <tr key={s}>
                     <td>{s}</td>
                     <td style={{ color:T.sub }}>{fmt(bl)}</td>
-                    <td><NumInput value={tw} onChange={v=>onUpdateWeekly(s,monthIdx,activeWeek,v)} /></td>
+                    <td><NumInput value={tw} cellId={`wk.${type}.${s}.${monthIdx}.${activeWeek}`} onChange={v=>onUpdateWeekly(s,monthIdx,activeWeek,v)} /></td>
                     <td style={{ color, fontWeight:600 }}>{fmt(run)}</td>
                     <td><span style={{ fontSize:12, color:rem>=0?T.sub:T.danger }}>{rem!==0?fmtS(-rem):"—"}</span></td>
                     {showNotes && (
@@ -1853,7 +1919,7 @@ function IncomePage({ monthIdx, viewEpoch, fyStart, totalMonths, streams, setStr
                   <tr key={s}>
                     <td>{s}</td>
                     <td style={{ color:T.sub }}>{fmt(b)}</td>
-                    <td><NumInput value={a} onChange={v=>onUpdate(s,monthIdx,v)}/></td>
+                    <td><NumInput value={a} cellId={`inc.${s}.${monthIdx}`} onChange={v=>onUpdate(s,monthIdx,v)}/></td>
                     <td><span className={v>=0?"vpos":"vneg"} style={{ fontSize:12 }}>{fmtS(v)}</span></td>
                     <td style={{ textAlign:"left", padding:"6px 10px" }}>
                       {isExpanded ? (
@@ -2117,7 +2183,7 @@ function NetWorthPage({ netWorth, assets, setAssets, monthIdx, fyStart, totalMon
               {assets.map(k=>(
                 <tr key={k}>
                   <td>{k}</td>
-                  <td><NumInput value={netWorth[k]?.[monthIdx] || 0} onChange={v=>onUpdate(k,monthIdx,v)}/></td>
+                  <td><NumInput value={netWorth[k]?.[monthIdx] || 0} cellId={`nw.${k}.${monthIdx}`} onChange={v=>onUpdate(k,monthIdx,v)}/></td>
                 </tr>
               ))}
               <tr className="total-row"><td>Total Net Worth</td><td>{fmt(total)}</td></tr>
@@ -2226,7 +2292,7 @@ function MoneyOwedPage({ rows, onUpdate }) {
               {rows.map((r,i)=>(
                 <tr key={i}>
                   <td><input value={r.name||""} onChange={e=>upd(i,"name",e.target.value)} style={{...inp,width:110}}/></td>
-                  <td><NumInput value={r.amount} onChange={v=>upd(i,"amount",v)}/></td>
+                  <td><NumInput value={r.amount} cellId={`owed.${i}.amount`} onChange={v=>upd(i,"amount",v)}/></td>
                   <td style={{ textAlign:"left" }}><input value={r.reason||""} onChange={e=>upd(i,"reason",e.target.value)} style={{...inp,width:150}}/></td>
                   <td style={{ textAlign:"left" }}><input value={methodOf(r)} placeholder="Bank transfer…"
                     onChange={e=>upd(i,"method",e.target.value)} style={{...inp,width:120}}/></td>
@@ -2234,7 +2300,7 @@ function MoneyOwedPage({ rows, onUpdate }) {
                     style={{...inp,width:132,colorScheme:"dark"}}/></td>
                   <td><input type="date" value={r.dueBy||""} onChange={e=>upd(i,"dueBy",e.target.value)}
                     style={{...inp,width:132,colorScheme:"dark",borderColor:isOverdue(r)?T.danger:T.border}}/></td>
-                  <td><NumInput value={r.paid} onChange={v=>upd(i,"paid",v)}/></td>
+                  <td><NumInput value={r.paid} cellId={`owed.${i}.paid`} onChange={v=>upd(i,"paid",v)}/></td>
                   <td><span style={{color:outstanding(r)<=0?T.success:isOverdue(r)?T.danger:T.warning,fontWeight:600,fontSize:13}}>
                     {fmt(outstanding(r))}{isOverdue(r) && <span title="Past its due date"> ⚠</span>}
                   </span></td>
@@ -2745,6 +2811,18 @@ function PennywiseApp() {
 
   // Notes: expNotes[stream][monthIdx][week] = string; incomeNotes[stream][monthIdx] = string
   const [expNotes, setExpNotes] = useState({});
+  // Working behind a figure: { [cellId]: "70+30" }. Flat, because the cells it
+  // covers belong to six different data shapes.
+  const [formulas, setFormulas] = useState({});
+  // Writing null forgets an entry, so a plain number typed over a formula does
+  // not leave the old working behind it.
+  const setFormula = useCallback((id, expr) => setFormulas(prev => {
+    if (!expr) {
+      if (!(id in prev)) return prev;
+      const next = { ...prev }; delete next[id]; return next;
+    }
+    return prev[id] === expr ? prev : { ...prev, [id]: expr };
+  }), []);
   const [incomeNotes, setIncomeNotes] = useState({});
 
   const [netWorthAssets, setNetWorthAssets] = useState(NET_WORTH_ASSETS);
@@ -2789,6 +2867,7 @@ function PennywiseApp() {
     setNetWorth(migrateNetWorth(v.nw || {}, nwAssets, here));
     if (v.mo)    setMoneyOwed(v.mo);
     if (v.expN)  setExpNotes(v.expN);
+    if (v.fx)    setFormulas(v.fx);
     if (v.incN)  setIncomeNotes(v.incN);
   }, []);
 
@@ -2969,9 +3048,10 @@ function PennywiseApp() {
       save("bt3-expFc", expForecast), save("bt3-expWk", expWeekly),
       save("bt3-nw", netWorth), save("bt3-nwCats", netWorthAssets), save("bt3-mo", moneyOwed),
       save("bt3-expN", expNotes), save("bt3-incN", incomeNotes),
+      save("bt3-fx", formulas),
     ]);
   }, [fyStart,totalMonths,currency,userName,savingsGoal,savingsTypes,epoch,netWorthAssets,incomeStreams,savingsStreams,expStreams,baselineIncome,baselineSavings,baselineExp,
-      incomeActual,savingsForecast,savingsWeekly,expForecast,expWeekly,netWorth,moneyOwed,expNotes,incomeNotes]);
+      incomeActual,savingsForecast,savingsWeekly,expForecast,expWeekly,netWorth,moneyOwed,expNotes,incomeNotes,formulas]);
 
   // ─── Autosave ────────────────────────────────────────────────────────────
   // Saving used to be a button you had to remember to press, so an evening of
@@ -3121,6 +3201,7 @@ function PennywiseApp() {
   return (
     <CurrencyContext.Provider value={money}>
     <CalendarContext.Provider value={calendar}>
+    <FormulaContext.Provider value={{ map: formulas, set: setFormula }}>
     <div style={{ minHeight:"100vh", background:T.bg }}>
       <style>{STYLES}</style>
 
@@ -3242,6 +3323,7 @@ function PennywiseApp() {
         </main>
       </div>
     </div>
+    </FormulaContext.Provider>
     </CalendarContext.Provider>
     </CurrencyContext.Provider>
   );

@@ -10,7 +10,7 @@ const PREFIX = "bt3-";
 const STORAGE_KEYS = [
   "fy", "tm", "curr", "cats", "savTypes", "epoch",
   "bInc", "bSav", "bExp", "incAct", "savFc", "savWk", "expFc", "expWk",
-  "nw", "nwCats", "mo", "expN", "incN",
+  "nw", "nwCats", "mo", "expN", "incN", "fx",
   "dver", "name", "goal", "done",
 ];
 
