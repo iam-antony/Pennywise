@@ -57,10 +57,18 @@ function useDialog(onClose) {
 // "adjust state during render" pattern: a synchronising effect renders once
 // with the stale value and then again with the corrected one, which is both
 // slower and, for the financial-year selector below, visibly wrong for a frame.
-function useSyncedState(derived) {
+// `token` is an optional second trigger: when it changes the state snaps back
+// to `derived` even though `derived` itself has not moved. "Today" needs this.
+// Jumping to the current month only re-derives the financial year when the
+// month actually changes, so someone already sitting on today's month who had
+// clicked through to a different FY tab stayed there — the button looked dead.
+function useSyncedState(derived, token) {
   const [value, setValue] = useState(derived);
   const [seen, setSeen] = useState(derived);
-  if (seen !== derived) { setSeen(derived); setValue(derived); }
+  const [seenToken, setSeenToken] = useState(token);
+  if (seen !== derived || seenToken !== token) {
+    setSeen(derived); setSeenToken(token); setValue(derived);
+  }
   return [value, setValue];
 }
 
@@ -1547,14 +1555,14 @@ function SankeyDiagram({ incomeStreams, savingsStreams, expStreams, savingsTypes
 
 // ─── PAGES ───────────────────────────────────────────────────────────────────
 
-function Dashboard({ monthIdx, fyStart, totalMonths, incomeStreams, savingsStreams, expStreams,
+function Dashboard({ monthIdx, viewEpoch, fyStart, totalMonths, incomeStreams, savingsStreams, expStreams,
   baselineIncome, baselineSavings, baselineExp, incomeActual, savingsForecast, savingsWeekly, expForecast, expWeekly,
   onFYSettings, savingsTypes, netWorth, netWorthAssets, moneyOwed, onOpenPage }) {
   const { MONTHS, getFYYear, getFYMonths } = useCalendar();
   const { fmt, fmtS } = useMoney();
   const sankeyRef = useRef(null);
 
-  const [selFY, setSelFY] = useSyncedState(getFYYear(monthIdx, fyStart));
+  const [selFY, setSelFY] = useSyncedState(getFYYear(monthIdx, fyStart), viewEpoch);
   const [viewMode, setViewMode] = useState("month");
 
   const fyMonths = getFYMonths(selFY, fyStart, totalMonths);
@@ -1718,12 +1726,12 @@ function Dashboard({ monthIdx, fyStart, totalMonths, incomeStreams, savingsStrea
   );
 }
 
-function IncomePage({ monthIdx, fyStart, totalMonths, streams, setStreams, baselineData, actualData, onUpdate, onEditBaseline, incomeNotes, onUpdateIncomeNote, onFYSettings }) {
+function IncomePage({ monthIdx, viewEpoch, fyStart, totalMonths, streams, setStreams, baselineData, actualData, onUpdate, onEditBaseline, incomeNotes, onUpdateIncomeNote, onFYSettings }) {
   const { MONTHS, getFYYear, getFYMonths } = useCalendar();
   const { fmt, fmtS } = useMoney();
   const [catModal, setCatModal] = useState(false);
   const [viewMode, setViewMode] = useState("month");
-  const [selFY, setSelFY] = useSyncedState(getFYYear(monthIdx, fyStart));
+  const [selFY, setSelFY] = useSyncedState(getFYYear(monthIdx, fyStart), viewEpoch);
   const [expandedNote, setExpandedNote] = useState(null);
   const fyMonths = getFYMonths(selFY, fyStart, totalMonths);
 
@@ -1863,13 +1871,13 @@ function IncomePage({ monthIdx, fyStart, totalMonths, streams, setStreams, basel
   );
 }
 
-function SavingsPage({ monthIdx, fyStart, totalMonths, streams, setStreams, baselineData, forecastData, weeklyData,
+function SavingsPage({ monthIdx, viewEpoch, fyStart, totalMonths, streams, setStreams, baselineData, forecastData, weeklyData,
   onUpdateWeekly, onUpdateForecast, onEditBaseline, onFYSettings, savingsTypes }) {
   const { MONTHS, getFYYear, getFYMonths } = useCalendar();
   const { fmt, fmtAxis } = useMoney();
   const [catModal, setCatModal] = useState(false);
   const [viewMode, setViewMode] = useState("month");
-  const [selFY, setSelFY] = useSyncedState(getFYYear(monthIdx, fyStart));
+  const [selFY, setSelFY] = useSyncedState(getFYYear(monthIdx, fyStart), viewEpoch);
   const fyMonths = getFYMonths(selFY, fyStart, totalMonths);
 
   // Every savings category together, pots and investments alike — the split
@@ -1951,12 +1959,12 @@ function SavingsPage({ monthIdx, fyStart, totalMonths, streams, setStreams, base
   );
 }
 
-function ExpenditurePage({ monthIdx, fyStart, totalMonths, streams, setStreams, baselineData, forecastData, weeklyData,
+function ExpenditurePage({ monthIdx, viewEpoch, fyStart, totalMonths, streams, setStreams, baselineData, forecastData, weeklyData,
   onUpdateWeekly, onUpdateForecast, onEditBaseline, expNotes, onUpdateExpNote, onFYSettings }) {
   const { MONTHS, getFYYear, getFYMonths } = useCalendar();
   const [catModal, setCatModal] = useState(false);
   const [viewMode, setViewMode] = useState("month");
-  const [selFY, setSelFY] = useSyncedState(getFYYear(monthIdx, fyStart));
+  const [selFY, setSelFY] = useSyncedState(getFYYear(monthIdx, fyStart), viewEpoch);
   const fyMonths = getFYMonths(selFY, fyStart, totalMonths);
 
   return (
@@ -2173,11 +2181,11 @@ function MoneyOwedPage({ rows, onUpdate }) {
   );
 }
 
-function BaselinePage({ monthIdx, fyStart, totalMonths, incomeStreams, savingsStreams, expStreams,
+function BaselinePage({ monthIdx, viewEpoch, fyStart, totalMonths, incomeStreams, savingsStreams, expStreams,
   baselineIncome, baselineSavings, baselineExp, onUpdateBaseline, onEditBaseline }) {
   const { MONTHS, getFYYear, getFYMonths, getAllFYs } = useCalendar();
   const { fmt } = useMoney();
-  const [selFY, setSelFY] = useSyncedState(getFYYear(monthIdx, fyStart));
+  const [selFY, setSelFY] = useSyncedState(getFYYear(monthIdx, fyStart), viewEpoch);
   const fys = useMemo(() => getAllFYs(fyStart, totalMonths), [getAllFYs, fyStart, totalMonths]);
   const fyMonths = getFYMonths(selFY, fyStart, totalMonths);
 
@@ -2627,6 +2635,9 @@ function PennywiseApp() {
   const [epoch, setEpoch] = useState(LEGACY_EPOCH);
   const [monthIdx, setMonthIdx] = useState(() =>
     Math.max(0, Math.min(monthIndexOf(LEGACY_EPOCH), MAX_MONTHS - 1)));
+  // Bumped by "Today". Every page's FY tab strip watches it, so one click
+  // returns the whole app to the present rather than just the month header.
+  const [viewEpoch, setViewEpoch] = useState(0);
   const [loading, setLoading] = useState(true);
   // "idle" before anything changes, then pending -> saving -> saved.
   const [saveState, setSaveState] = useState("idle");
@@ -2992,10 +3003,10 @@ function PennywiseApp() {
 
   const navItems = [
     {key:"dashboard",icon:"◈",label:"Dashboard"},
+    {key:"networth",icon:"◆",label:"Net Worth"},
     {key:"income",icon:"↗",label:"Income"},
     {key:"savings",icon:"◎",label:"Savings"},
     {key:"expenditure",icon:"◉",label:"Expenditure"},
-    {key:"networth",icon:"◆",label:"Net Worth"},
     {key:"moneyowed",icon:"◷",label:"Money Owed"},
     {key:"baseline",icon:"⊞",label:"Baselines"},
   ];
@@ -3077,7 +3088,10 @@ function PennywiseApp() {
               Clamped, so it still lands somewhere sensible if the real month
               falls outside the tracked timeline. */}
           <button className="btn btn-ghost btn-xs" title="Jump to the current month"
-            onClick={()=>setMonthIdx(Math.max(0, Math.min(monthIndexOf(calendar.epoch), totalMonths-1)))}>
+            onClick={()=>{
+              setMonthIdx(Math.max(0, Math.min(monthIndexOf(calendar.epoch), totalMonths-1)));
+              setViewEpoch(v => v + 1);
+            }}>
             Today
           </button>
         </div>
@@ -3120,23 +3134,23 @@ function PennywiseApp() {
             the error, and scoped so the header and sidebar survive it. */}
         <main className="app-main">
           <ErrorBoundary key={page} scope="page" onDismiss={()=>setPage("dashboard")}>
-          {page==="dashboard"&&<Dashboard monthIdx={monthIdx} fyStart={fyStart} totalMonths={totalMonths} incomeStreams={incomeStreams} savingsStreams={savingsStreams} expStreams={expStreams}
+          {page==="dashboard"&&<Dashboard monthIdx={monthIdx} viewEpoch={viewEpoch} fyStart={fyStart} totalMonths={totalMonths} incomeStreams={incomeStreams} savingsStreams={savingsStreams} expStreams={expStreams}
             baselineIncome={baselineIncome} baselineSavings={baselineSavings} baselineExp={baselineExp}
             incomeActual={incomeActual} savingsForecast={savingsForecast} savingsWeekly={savingsWeekly}
             expForecast={expForecast} expWeekly={expWeekly} onFYSettings={()=>setFYSettingsOpen(true)} savingsTypes={savingsTypes}
             netWorth={netWorth} netWorthAssets={netWorthAssets} moneyOwed={moneyOwed} onOpenPage={setPage}/>}
 
-          {page==="income"&&<IncomePage monthIdx={monthIdx} fyStart={fyStart} totalMonths={totalMonths} streams={incomeStreams} setStreams={handleSetInc}
+          {page==="income"&&<IncomePage monthIdx={monthIdx} viewEpoch={viewEpoch} fyStart={fyStart} totalMonths={totalMonths} streams={incomeStreams} setStreams={handleSetInc}
             baselineData={baselineIncome} actualData={incomeActual} onUpdate={updIncAct}
             onEditBaseline={openBaselineEditor} incomeNotes={incomeNotes} onUpdateIncomeNote={updIncomeNote}
             onFYSettings={()=>setFYSettingsOpen(true)}/>}
 
-          {page==="savings"&&<SavingsPage monthIdx={monthIdx} fyStart={fyStart} totalMonths={totalMonths} streams={savingsStreams} setStreams={handleSetSav}
+          {page==="savings"&&<SavingsPage monthIdx={monthIdx} viewEpoch={viewEpoch} fyStart={fyStart} totalMonths={totalMonths} streams={savingsStreams} setStreams={handleSetSav}
             baselineData={baselineSavings} forecastData={savingsForecast} weeklyData={savingsWeekly}
             onUpdateWeekly={updSavWk} onUpdateForecast={updSavFc} onEditBaseline={openBaselineEditor} savingsTypes={savingsTypes}
             onFYSettings={()=>setFYSettingsOpen(true)}/>}
 
-          {page==="expenditure"&&<ExpenditurePage monthIdx={monthIdx} fyStart={fyStart} totalMonths={totalMonths} streams={expStreams} setStreams={handleSetExp}
+          {page==="expenditure"&&<ExpenditurePage monthIdx={monthIdx} viewEpoch={viewEpoch} fyStart={fyStart} totalMonths={totalMonths} streams={expStreams} setStreams={handleSetExp}
             baselineData={baselineExp} forecastData={expForecast} weeklyData={expWeekly}
             onUpdateWeekly={updExpWk} onUpdateForecast={updExpFc} onEditBaseline={openBaselineEditor}
             expNotes={expNotes} onUpdateExpNote={updExpNote}
@@ -3147,7 +3161,7 @@ function PennywiseApp() {
             setAssets={(a,o)=>{setNetWorthAssets(a);setNetWorth(p=>applyStreams(p,a,o,"array"));}}
             onUpdate={(k,mi,v)=>setNetWorth(p=>{const arr=[...(p[k]||Array(MAX_MONTHS).fill(0))];arr[mi]=v;return{...p,[k]:arr};})}/>}
           {page==="moneyowed"&&<MoneyOwedPage rows={moneyOwed} onUpdate={setMoneyOwed}/>}
-          {page==="baseline"&&<BaselinePage monthIdx={monthIdx} fyStart={fyStart} totalMonths={totalMonths}
+          {page==="baseline"&&<BaselinePage monthIdx={monthIdx} viewEpoch={viewEpoch} fyStart={fyStart} totalMonths={totalMonths}
             incomeStreams={incomeStreams} savingsStreams={savingsStreams} expStreams={expStreams}
             baselineIncome={baselineIncome} baselineSavings={baselineSavings} baselineExp={baselineExp}
             onEditBaseline={openBaselineEditor}/>}
