@@ -2053,7 +2053,8 @@ const SUGGESTED_EXP = [
   { label:"Other", icon:"📋" },
 ];
 
-function Onboarding({ onComplete }) {
+function Onboarding({ onComplete, onRestore, importState }) {
+  const restoreRef = useRef(null);
   const [step, setStep] = useState(0);
   const [name, setName] = useState("");
   const [currency, setCurrency] = useState(CURRENCIES[0]);
@@ -2124,6 +2125,30 @@ function Onboarding({ onComplete }) {
         {name.trim() && (
           <div style={{ marginTop:12, fontSize:13, color:T.sub }}>
             Nice to meet you, <strong style={{ color:T.accent }}>{name}</strong> 👋
+          </div>
+        )}
+
+        {/* Someone arriving on a new device with a backup had to finish the whole
+            wizard before they could reach the restore button, then watch the
+            restore overwrite the profile they had just created. */}
+        {onRestore && (
+          <div style={{ marginTop:28, paddingTop:20, borderTop:`1px solid ${T.border}` }}>
+            <div style={{ fontSize:13, color:T.sub, marginBottom:10 }}>
+              Used Pennywise before? Your data lives in the browser you set it up in, so on a new
+              device you start from a backup file.
+            </div>
+            <button className="btn btn-ghost btn-sm" onClick={() => restoreRef.current?.click()}
+              style={{ width:"100%", justifyContent:"center" }}>
+              ↑ Restore from a backup file
+            </button>
+            <input ref={restoreRef} type="file" accept="application/json,.json" style={{ display:"none" }}
+              onChange={e => { const f = e.target.files?.[0]; e.target.value = ""; if (f) onRestore(f); }} />
+            {importState?.error && (
+              <div style={{ marginTop:10, padding:"9px 12px", background:"rgba(240,100,100,.08)",
+                border:`1px solid rgba(240,100,100,.3)`, borderRadius:8, fontSize:12, color:T.danger }}>
+                {importState.error}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -2796,7 +2821,8 @@ function PennywiseApp() {
     </div>
   );
 
-  if (!onboarded) return <Onboarding onComplete={handleOnboardingComplete} />;
+  if (!onboarded) return <Onboarding onComplete={handleOnboardingComplete}
+    onRestore={restoreBackup} importState={importState} />;
 
   return (
     <CurrencyContext.Provider value={money}>
