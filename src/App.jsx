@@ -1265,7 +1265,10 @@ function FYSummaryTable({ streams, fyMonths, baselineData, forecastData, weeklyD
 function WeeklyEntryTable({ streams, weeklyData, baselineData, forecastData, monthIdx, onUpdateWeekly, onUpdateForecast, type, notes, onUpdateNote }) {
   const { MONTHS } = useCalendar();
   const { fmt, fmtS } = useMoney();
-  const [activeWeek, setActiveWeek] = useState(1);
+  // Opens on the month's summary. Week one is where you enter, but the whole
+  // month is what you come back to look at, and starting a week in hid the
+  // baseline and forecast columns behind a tab nobody had reason to leave.
+  const [activeWeek, setActiveWeek] = useState(0);
   const [expandedNote, setExpandedNote] = useState(null); // stream key for expanded note row
   const color = type === "savings" ? T.success : T.danger;
   const showNotes = type === "expenditure";
