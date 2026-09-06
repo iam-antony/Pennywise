@@ -2702,7 +2702,7 @@ function Onboarding({ onComplete, onRestore, importState }) {
 
       {/* Header logo */}
       <div style={{ marginBottom:32, textAlign:"center" }}>
-        <div style={{ fontFamily:"'Playfair Display'", fontSize:22, fontWeight:700, color:T.accent, letterSpacing:2 }}>PENNYWISE</div>
+        <div style={{ fontFamily:"'Playfair Display'", fontSize:22, fontWeight:700, color:T.accent, letterSpacing:2 }}>YO CENT-E</div>
         <div style={{ fontSize:11, color:T.sub, letterSpacing:3, marginTop:2 }}>PERSONAL FINANCE</div>
       </div>
 
