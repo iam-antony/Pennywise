@@ -2419,7 +2419,10 @@ function Onboarding({ onComplete, onRestore, importState }) {
   const [name, setName] = useState("");
   const [currency, setCurrency] = useState(CURRENCIES[0]);
   const [currencySearch, setCurrencySearch] = useState("");
-  const [fyStart, setFYStart] = useState(3);
+  // January unless the user says otherwise, so the default needs no explaining.
+  const [fyStart, setFYStart] = useState(0);
+  const [customYear, setCustomYear] = useState(false);
+  const [yearHint, setYearHint] = useState(null);
   const [monthlyIncome, setMonthlyIncome] = useState("");
   const [savingsGoal, setSavingsGoal] = useState("");
   const [savingsCats, setSavingsCats] = useState(["Emergency Fund","Personal Savings","Investments"]);
@@ -2427,6 +2430,19 @@ function Onboarding({ onComplete, onRestore, importState }) {
   const [customSav, setCustomSav] = useState("");
   const [customExp, setCustomExp] = useState("");
   const [dir, setDir] = useState(1);
+
+  // The clock is read here, on the click, never during render.
+  const hintFor = start => {
+    const now = new Date();
+    const y = now.getMonth() >= start ? now.getFullYear() : now.getFullYear() - 1;
+    return { start: y, end: start === 0 ? y : y + 1 };
+  };
+  const pickYearStart = start => { setFYStart(start); setYearHint(hintFor(start)); };
+  const pickYearMode = custom => {
+    setCustomYear(custom);
+    if (custom) pickYearStart(fyStart === 0 ? 3 : fyStart);   // April is the common reason to be here
+    else { setFYStart(0); setYearHint(null); }
+  };
 
   const filteredCurrencies = useMemo(() => {
     const q = currencySearch.toLowerCase();
@@ -2456,11 +2472,11 @@ function Onboarding({ onComplete, onRestore, importState }) {
   const stepValid = [
     name.trim().length > 0,           // 0 name
     true,                              // 1 currency (always valid)
-    true,                              // 2 FY
-    true,                              // 3 monthly income
-    true,                              // 4 savings goal
-    savingsCats.length > 0,            // 5 savings cats
-    expCats.length > 0,                // 6 exp cats
+    true,                              // 2 monthly income
+    true,                              // 3 savings goal
+    savingsCats.length > 0,            // 4 savings cats
+    expCats.length > 0,                // 5 exp cats
+    true,                              // 6 your year
   ];
 
   const stepContent = [
@@ -2545,34 +2561,8 @@ function Onboarding({ onComplete, onRestore, importState }) {
       </div>
     </div>,
 
-    // ── STEP 2: Financial Year ──
+    // ── STEP 2: Monthly Income ──
     <div key={2} style={{ textAlign:"center" }}>
-      <div style={{ fontSize:44, marginBottom:12 }}>📅</div>
-      <h2 style={{ fontFamily:"'Playfair Display'", fontSize:24, fontWeight:600, color:T.text, marginBottom:8 }}>Financial year start</h2>
-      <p style={{ fontSize:14, color:T.sub, maxWidth:420, margin:"0 auto 28px" }}>
-        When does your financial year begin? This controls how the app groups months into FY summaries.
-      </p>
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, maxWidth:480, margin:"0 auto 20px" }}>
-        {MONTH_NAMES.map((m, i) => (
-          <button key={i} onClick={() => setFYStart(i)}
-            style={{ background: fyStart===i ? "rgba(212,168,83,.15)" : T.inputBg,
-              border:`1.5px solid ${fyStart===i ? T.accent : T.border}`, borderRadius:10,
-              padding:"12px 8px", cursor:"pointer", transition:"all .15s",
-              color: fyStart===i ? T.accent : T.sub, fontWeight: fyStart===i ? 700 : 400,
-              fontFamily:"'DM Sans'", fontSize:13 }}>
-            {m}
-          </button>
-        ))}
-      </div>
-      <div style={{ padding:"12px 20px", background:"rgba(212,168,83,.06)", border:`1px solid rgba(212,168,83,.2)`, borderRadius:10, fontSize:13, color:T.sub, display:"inline-block" }}>
-        Your FY runs <strong style={{ color:T.accent }}>{MONTH_NAMES[fyStart]}</strong> → <strong style={{ color:T.accent }}>{MONTH_NAMES[(fyStart+11)%12]}</strong>
-        {fyStart===3 && <span style={{ color:T.success, marginLeft:8 }}>✓ UK Tax Year</span>}
-        {fyStart===0 && <span style={{ color:T.success, marginLeft:8 }}>✓ Calendar Year</span>}
-      </div>
-    </div>,
-
-    // ── STEP 3: Monthly Income ──
-    <div key={3} style={{ textAlign:"center" }}>
       <div style={{ fontSize:44, marginBottom:12 }}>💷</div>
       <h2 style={{ fontFamily:"'Playfair Display'", fontSize:24, fontWeight:600, color:T.text, marginBottom:8 }}>Monthly take-home income</h2>
       <p style={{ fontSize:14, color:T.sub, maxWidth:420, margin:"0 auto 28px" }}>
@@ -2594,12 +2584,12 @@ function Onboarding({ onComplete, onRestore, importState }) {
       </div>
     </div>,
 
-    // ── STEP 4: Savings Goal ──
-    <div key={4} style={{ textAlign:"center" }}>
+    // ── STEP 3: Savings Goal ──
+    <div key={3} style={{ textAlign:"center" }}>
       <div style={{ fontSize:44, marginBottom:12 }}>🎯</div>
       <h2 style={{ fontFamily:"'Playfair Display'", fontSize:24, fontWeight:600, color:T.text, marginBottom:8 }}>Annual savings goal</h2>
       <p style={{ fontSize:14, color:T.sub, maxWidth:400, margin:"0 auto 28px" }}>
-        How much would you like to save this financial year? You can update this anytime.
+        How much would you like to save this year? You can update this anytime.
       </p>
       <div style={{ maxWidth:300, margin:"0 auto" }}>
         <div style={{ display:"flex", alignItems:"center", background:T.inputBg, border:`1.5px solid ${savingsGoal ? T.accent : T.border}`, borderRadius:12, overflow:"hidden", transition:"border-color .2s" }}>
@@ -2620,8 +2610,8 @@ function Onboarding({ onComplete, onRestore, importState }) {
       </div>
     </div>,
 
-    // ── STEP 5: Savings Categories ──
-    <div key={5}>
+    // ── STEP 4: Savings Categories ──
+    <div key={4}>
       <div style={{ textAlign:"center", marginBottom:24 }}>
         <div style={{ fontSize:44, marginBottom:12 }}>🏦</div>
         <h2 style={{ fontFamily:"'Playfair Display'", fontSize:24, fontWeight:600, color:T.text, marginBottom:8 }}>Savings categories</h2>
@@ -2656,8 +2646,8 @@ function Onboarding({ onComplete, onRestore, importState }) {
       ))}
     </div>,
 
-    // ── STEP 6: Expenditure Categories ──
-    <div key={6}>
+    // ── STEP 5: Expenditure Categories ──
+    <div key={5}>
       <div style={{ textAlign:"center", marginBottom:24 }}>
         <div style={{ fontSize:44, marginBottom:12 }}>🧾</div>
         <h2 style={{ fontFamily:"'Playfair Display'", fontSize:24, fontWeight:600, color:T.text, marginBottom:8 }}>Expenditure categories</h2>
@@ -2691,9 +2681,76 @@ function Onboarding({ onComplete, onRestore, importState }) {
         </div>
       ))}
     </div>,
+
+    // ── STEP 6: Your year ──
+    // Last, and done in one click by anyone who does not need it. Testers told
+    // us they did not know what a financial year was; asking them to name one
+    // before they had entered a single figure was the wrong question at the
+    // wrong time. Neither option here asks what they know — both describe a
+    // situation, and the common one is already chosen.
+    <div key={6} style={{ textAlign:"center" }}>
+      <div style={{ fontSize:44, marginBottom:12 }}>📅</div>
+      <h2 style={{ fontFamily:"'Playfair Display'", fontSize:24, fontWeight:600, color:T.text, marginBottom:8 }}>Your year</h2>
+      <p style={{ fontSize:14, color:T.sub, maxWidth:430, margin:"0 auto 24px" }}>
+        Most people track their money by the calendar year. If you file a tax return
+        or run a business, yours might start in a different month.
+      </p>
+      <div style={{ display:"grid", gap:10, maxWidth:440, margin:"0 auto" }}>
+        {[
+          { custom:false, title:"January to December", sub:"The calendar year" },
+          { custom:true,  title:"My year starts another month", sub:"For a tax year or a business year" },
+        ].map(o => (
+          <button key={String(o.custom)} onClick={() => pickYearMode(o.custom)}
+            aria-pressed={customYear === o.custom}
+            style={{ textAlign:"left", padding:"14px 16px", borderRadius:12, cursor:"pointer",
+              background: customYear === o.custom ? "rgba(212,168,83,.12)" : T.inputBg,
+              border:`1.5px solid ${customYear === o.custom ? T.accent : T.border}`,
+              transition:"all .15s", font:"inherit", display:"flex", alignItems:"center", gap:12 }}>
+            <span style={{ width:16, height:16, borderRadius:"50%", flexShrink:0,
+              border:`2px solid ${customYear === o.custom ? T.accent : T.border}`,
+              background: customYear === o.custom ? T.accent : "transparent" }}/>
+            <span style={{ flex:1, minWidth:0 }}>
+              <span style={{ display:"block", fontSize:14, fontWeight:600,
+                color: customYear === o.custom ? T.accent : T.text }}>{o.title}</span>
+              <span style={{ display:"block", fontSize:12, color:T.sub, marginTop:2 }}>{o.sub}</span>
+            </span>
+            {!o.custom && <span style={{ fontSize:10, color:T.sub, textTransform:"uppercase",
+              letterSpacing:".06em", flexShrink:0 }}>Most people</span>}
+          </button>
+        ))}
+      </div>
+
+      {customYear && (
+        <div style={{ marginTop:20 }}>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, maxWidth:440, margin:"0 auto 16px" }}>
+            {MONTH_NAMES.map((m, mi) => (
+              <button key={mi} onClick={() => pickYearStart(mi)}
+                style={{ background: fyStart===mi ? "rgba(212,168,83,.15)" : T.inputBg,
+                  border:`1.5px solid ${fyStart===mi ? T.accent : T.border}`, borderRadius:10,
+                  padding:"12px 8px", cursor:"pointer", transition:"all .15s",
+                  color: fyStart===mi ? T.accent : T.sub, fontWeight: fyStart===mi ? 700 : 400,
+                  fontFamily:"'DM Sans'", fontSize:13 }}>
+                {m}
+              </button>
+            ))}
+          </div>
+          {/* The answer in plain terms, so someone half-sure can check it
+              rather than having to trust the word "financial year". */}
+          {yearHint && (
+            <div style={{ padding:"12px 20px", background:"rgba(212,168,83,.06)",
+              border:`1px solid rgba(212,168,83,.2)`, borderRadius:10, fontSize:13,
+              color:T.sub, display:"inline-block" }}>
+              Your year will run <strong style={{ color:T.accent }}>{MONTH_NAMES[fyStart]} {yearHint.start}</strong>
+              {" → "}<strong style={{ color:T.accent }}>{MONTH_NAMES[(fyStart+11)%12]} {yearHint.end}</strong>
+              {fyStart===3 && <span style={{ color:T.success, marginLeft:8 }}>✓ UK tax year</span>}
+            </div>
+          )}
+        </div>
+      )}
+    </div>,
   ];
 
-  const stepLabels = ["Welcome","Currency","Fin. Year","Income","Goal","Savings","Spending"];
+  const stepLabels = ["Welcome","Currency","Income","Goal","Savings","Spending","Your year"];
 
   return (
     <div style={{ minHeight:"100vh", background:T.bg, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:24 }}>
@@ -2784,7 +2841,7 @@ function YoCentEApp() {
   // "idle" before anything changes, then pending -> saving -> saved.
   const [saveState, setSaveState] = useState("idle");
   const [savedAt, setSavedAt] = useState(null);
-  const [fyStart, setFYStart] = useState(3); // April default
+  const [fyStart, setFYStart] = useState(0); // calendar year; a stored profile overrides it
   const [totalMonths, setTotalMonths] = useState(48); // starts at 48, user can extend
   const [fySettingsOpen, setFYSettingsOpen] = useState(false);
   const [currency, setCurrency] = useState(CURRENCIES[0]); // GBP default
