@@ -16,6 +16,12 @@ const useMoney = () => useContext(CurrencyContext);
 // The month table and the financial-year maths depend on where the user's
 // timeline starts, so they are built once per epoch and passed down rather
 // than being module-level constants pinned to January 2026.
+// The app calls it a financial year only when it actually differs from the
+// calendar year. On January the two are the same thing, so it is just "the
+// year" — a beginner never meets a term they have no use for, while anyone who
+// set a tax year still sees theirs named properly.
+const yearNoun = fyStart => (fyStart === 0 ? "year" : "financial year");
+
 const CalendarContext = createContext(makeCalendar(LEGACY_EPOCH));
 const useCalendar = () => useContext(CalendarContext);
 
@@ -292,9 +298,9 @@ function FYToolbar({ fyStart, monthIdx, totalMonths = 48, selectedFY, onSelectFY
       </div>
       <div className="view-toggle">
         <button className={`vt-btn${viewMode === "month" ? " active" : ""}`} onClick={() => onViewMode("month")}>Monthly</button>
-        <button className={`vt-btn${viewMode === "fy" ? " active" : ""}`} onClick={() => onViewMode("fy")}>FY View</button>
+        <button className={`vt-btn${viewMode === "fy" ? " active" : ""}`} onClick={() => onViewMode("fy")}>{fyStart === 0 ? "Year" : "FY View"}</button>
       </div>
-      <button className="btn btn-ghost btn-xs" onClick={onSettings} title="Configure financial year">⚙ FY</button>
+      <button className="btn btn-ghost btn-xs" onClick={onSettings} title={`Configure your ${yearNoun(fyStart)}`}>⚙ Year</button>
     </div>
   );
 }
@@ -315,11 +321,13 @@ function FYSettingsModal({ fyStart, totalMonths, onSave, onClose, onAddEarlier }
 
   return (
     <div className="modal-bg" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div {...dialog} aria-label="Financial year settings" className="modal">
-        <div style={{ fontFamily:"'Playfair Display'", fontSize:18, fontWeight:600, marginBottom:16 }}>Financial Year Settings</div>
+      <div {...dialog} aria-label="Year settings" className="modal">
+        <div style={{ fontFamily:"'Playfair Display'", fontSize:18, fontWeight:600, marginBottom:6 }}>Year Settings</div>
+        <div style={{ fontSize:12, color:T.sub, marginBottom:16 }}>
+          Most people leave this on January. Change it if you track a tax year or a business year.
+        </div>
 
-        {/* FY Start Month */}
-        <div className="sl" style={{ marginBottom:10 }}>FY Start Month</div>
+        <div className="sl" style={{ marginBottom:10 }}>Year starts in</div>
         <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:8, marginBottom:14 }}>
           {MONTH_NAMES.map((m, i) => (
             <button key={i} className={`btn ${s===i ? "btn-primary" : "btn-ghost"} btn-sm`} style={{ justifyContent:"center" }} onClick={() => setS(i)}>
@@ -328,15 +336,16 @@ function FYSettingsModal({ fyStart, totalMonths, onSave, onClose, onAddEarlier }
           ))}
         </div>
         <div style={{ padding:"10px 14px", background:"rgba(212,168,83,.06)", borderRadius:8, border:`1px solid rgba(212,168,83,.2)`, fontSize:12, color:T.sub, marginBottom:22 }}>
-          FY runs <strong style={{ color:T.accent }}>{MONTH_NAMES[s]}</strong> → <strong style={{ color:T.accent }}>{MONTH_NAMES[(s+11)%12]}</strong>
-          {s === 3 && <span style={{ color:T.success, marginLeft:8 }}>✓ UK Tax Year default</span>}
+          Your {yearNoun(s)} runs <strong style={{ color:T.accent }}>{MONTH_NAMES[s]}</strong> → <strong style={{ color:T.accent }}>{MONTH_NAMES[(s+11)%12]}</strong>
+          {s === 0 && <span style={{ color:T.success, marginLeft:8 }}>✓ Calendar year</span>}
+          {s === 3 && <span style={{ color:T.success, marginLeft:8 }}>✓ UK tax year</span>}
         </div>
 
         {/* Extend Timeline */}
         <div style={{ borderTop:`1px solid ${T.border}`, paddingTop:18, marginBottom:18 }}>
           <div className="sl" style={{ marginBottom:10 }}>Timeline Range</div>
           <div style={{ fontSize:13, color:T.sub, marginBottom:14 }}>
-            Currently tracking <strong style={{ color:T.text }}>{fys.length} financial years</strong> — {firstMonth?.label} through {lastMonth?.label}.
+            Currently tracking <strong style={{ color:T.text }}>{fys.length} {s === 0 ? "years" : "financial years"}</strong> — {firstMonth?.label} through {lastMonth?.label}.
             Add future years as you go, or an earlier one to enter figures from before you started.
           </div>
 
@@ -927,7 +936,7 @@ function BaselineEditorModal({ section, streams, data, fyStart, totalMonths, onS
           </div>
         </div>
         <div style={{ fontSize:12, color:T.sub, marginBottom:14 }}>
-          Baselines are usually reviewed at the start of your financial year ({MONTH_NAMES[fyStart]}). Enter monthly values for each category in the selected FY.
+          Baselines are usually reviewed at the start of your {yearNoun(fyStart)}{fyStart !== 0 && ` (${MONTH_NAMES[fyStart]})`}. Enter monthly values for each category in the selected year.
         </div>
         <div style={{ display:"flex", gap:8, marginBottom:12, flexWrap:"wrap" }}>
           <button className="btn btn-ghost btn-sm" onClick={copyFromPrev}>↩ Copy from prev FY</button>
@@ -942,7 +951,7 @@ function BaselineEditorModal({ section, streams, data, fyStart, totalMonths, onS
                 <th style={{ width:160, minWidth:160, maxWidth:160 }}>Category</th>
                 <th style={{ color:T.warning, fontSize:10 }}>Fill All →</th>
                 {fyMonths.map(mi => <th key={mi} style={{ fontSize:11 }}>{MONTHS[mi]?.short}</th>)}
-                <th style={{ color:T.accent, minWidth:96 }}>FY Total</th>
+                <th style={{ color:T.accent, minWidth:96 }}>{fyStart === 0 ? "Year Total" : "FY Total"}</th>
               </tr>
             </thead>
             <tbody>
@@ -967,7 +976,7 @@ function BaselineEditorModal({ section, streams, data, fyStart, totalMonths, onS
                 );
               })}
               <tr className="total-row">
-                <td>FY Total</td>
+                <td>{fyStart === 0 ? "Year Total" : "FY Total"}</td>
                 <td></td>
                 {fyMonths.map(mi => (
                   <td key={mi} style={{ fontSize:11 }}>{fmt(streams.reduce((a,s)=>a+(draft[s]?.[mi]||0),0))}</td>
@@ -1277,7 +1286,7 @@ function ComboChart({ title, streams, weeklyData, monthlyData, forecastData, bas
 }
 
 // ─── FY SUMMARY TABLE (used in Income / Savings / Expenditure FY view) ────────
-function FYSummaryTable({ streams, fyMonths, baselineData, forecastData, weeklyData, incomeActual, type }) {
+function FYSummaryTable({ streams, fyMonths, baselineData, forecastData, weeklyData, incomeActual, type, fyStart }) {
   const { MONTHS } = useCalendar();
   const { fmt, fmtS } = useMoney();
   const isWeekly = !!weeklyData;
@@ -1292,7 +1301,7 @@ function FYSummaryTable({ streams, fyMonths, baselineData, forecastData, weeklyD
           <tr>
             <th style={{ width:150, minWidth:150 }}>Category</th>
             {fyMonths.map(mi=><th key={mi} style={{ fontSize:10 }}>{MONTHS[mi]?.short}</th>)}
-            <th style={{ color:T.accent, minWidth:96 }}>FY Total</th>
+            <th style={{ color:T.accent, minWidth:96 }}>{fyStart === 0 ? "Year Total" : "FY Total"}</th>
           </tr>
         </thead>
         <tbody>
@@ -1726,6 +1735,8 @@ function Dashboard({ monthIdx, viewEpoch, fyStart, totalMonths, incomeStreams, s
   const savDue = ytd.reduce((a,mi)=>a+allMonthly(pureStreams,baselineSavings,mi),0);
   const invDue = ytd.reduce((a,mi)=>a+allMonthly(investStreams,baselineSavings,mi),0);
   const expDue = ytd.reduce((a,mi)=>a+allMonthly(expStreams,baselineExp,mi),0);
+  // A year clipped by the edge of the timeline rather than a whole one.
+  const partialFY = fyMonths.length > 0 && fyMonths.length < 12;
   const frac   = fyMonths.length > 0 ? ytd.length / fyMonths.length : 0;
 
   // Pace follows the Monthly/FY toggle above it. Reading a month's spending
@@ -1785,16 +1796,16 @@ function Dashboard({ monthIdx, viewEpoch, fyStart, totalMonths, incomeStreams, s
       {/* Money that moved. Every card opens the page behind it. */}
       <div className="sl" style={{ marginBottom:9 }}>{viewMode==="fy" ? fyLabel(selFY, fyStart) : MONTHS[monthIdx]?.label}</div>
       <div style={{ display:"flex", gap:12, flexWrap:"wrap", marginBottom:22 }}>
-        <StatCard icon="💰" label={viewMode==="fy"?"FY Income":"Income"}
+        <StatCard icon="💰" label={viewMode==="fy"?(fyStart===0?"Year Income":"FY Income"):"Income"}
           value={fmt(viewMode==="fy"?fyMonths.reduce((a,mi)=>a+allMonthly(incomeStreams,incomeActual,mi),0):actInc)}
           delta={viewMode==="fy"?undefined:actInc-basInc}
           onOpen={()=>onOpenPage("income")} openLabel="Income — open the Income page"/>
-        <StatCard icon="🏦" label={viewMode==="fy"?"FY Saved":"Total Saved"}
+        <StatCard icon="🏦" label={viewMode==="fy"?(fyStart===0?"Year Saved":"FY Saved"):"Total Saved"}
           value={fmt(viewMode==="fy"?fyActSav:actSav)}
           sub={`Baseline: ${fmt(viewMode==="fy"?fyBasSav:basSav)} · Forecast: ${fmt(viewMode==="fy"?fyFcSav:fcSav)}`}
           delta={viewMode==="fy"?undefined:actSav-fcSav} deltaLabel="vs forecast"
           onOpen={()=>onOpenPage("savings")} openLabel="Total saved — open the Savings page"/>
-        <StatCard icon="🧾" label={viewMode==="fy"?"FY Spent":"Total Spent"}
+        <StatCard icon="🧾" label={viewMode==="fy"?(fyStart===0?"Year Spent":"FY Spent"):"Total Spent"}
           value={fmt(viewMode==="fy"?fyActExp:actExp)}
           sub={`Baseline: ${fmt(viewMode==="fy"?fyBasExp:basExp)} · Forecast: ${fmt(viewMode==="fy"?fyFcExp:fcExp)}`}
           delta={viewMode==="fy"?undefined:actExp-fcExp} deltaLabel="vs forecast" posGood={false}
@@ -1813,13 +1824,15 @@ function Dashboard({ monthIdx, viewEpoch, fyStart, totalMonths, incomeStreams, s
         <div style={{ fontFamily:"'Playfair Display'", fontSize:15, fontWeight:600, marginBottom:4 }}>
           {!fyPace ? "This Month's Pace"
             : fyState === "current" ? "Year-to-Date Pace"
+            : partialFY ? "Part of a Year"
             : fyState === "past" ? "Full Year Result" : "Planned Year"}
         </div>
         <div style={{ fontSize:11, color:T.sub, marginBottom:18 }}>
-          {!fyPace && <>{MONTHS[monthIdx]?.label} against its baseline · switch to FY for the year's pace</>}
+          {!fyPace && <>{MONTHS[monthIdx]?.label} against its baseline · switch to {fyStart === 0 ? "Year" : "FY"} for the year's pace</>}
           {fyPace && fyState === "current" && <>{Math.round(frac*100)}% through {fyLabel(selFY, fyStart)} · the tick on each bar is where you should be by now</>}
-          {fyPace && fyState === "past"    && <>{fyLabel(selFY, fyStart)} is complete · measured against the full year's baseline</>}
-          {fyPace && fyState === "future"  && <>{fyLabel(selFY, fyStart)} has not started · showing the plan, with nothing recorded yet</>}
+          {fyPace && partialFY && <>Only {fyMonths.length} of {fyLabel(selFY, fyStart)}&rsquo;s 12 months sit inside your timeline · extend your timeline in Year settings to include the rest</>}
+          {fyPace && !partialFY && fyState === "past"    && <>{fyLabel(selFY, fyStart)} is complete · measured against the full year's baseline</>}
+          {fyPace && !partialFY && fyState === "future"  && <>{fyLabel(selFY, fyStart)} has not started · showing the plan, with nothing recorded yet</>}
         </div>
         <PaceBar label="Savings" icon="🏦" color={T.success}
           actual={savPace.actual} target={savPace.target} mark={savPace.mark}
@@ -1878,7 +1891,7 @@ function IncomePage({ monthIdx, viewEpoch, fyStart, totalMonths, streams, setStr
         <div>
           <div className="card" style={{ padding:20, marginBottom:16 }}>
             <div className="sl" style={{ marginBottom:14 }}>{fyLabel(selFY,fyStart)} — All Months (Actual Income)</div>
-            <FYSummaryTable streams={streams} fyMonths={fyMonths} baselineData={baselineData}
+            <FYSummaryTable fyStart={fyStart} streams={streams} fyMonths={fyMonths} baselineData={baselineData}
               forecastData={baselineData} incomeActual={actualData} type="income"/>
           </div>
           {/* Extra Income notes in FY view */}
@@ -2035,7 +2048,7 @@ function SavingsPage({ monthIdx, viewEpoch, fyStart, totalMonths, streams, setSt
         <div>
           <div className="card" style={{ padding:20, marginBottom:16 }}>
             <div className="sl" style={{ marginBottom:14 }}>{fyLabel(selFY,fyStart)} — Actual Savings</div>
-            <FYSummaryTable streams={streams} fyMonths={fyMonths} baselineData={baselineData}
+            <FYSummaryTable fyStart={fyStart} streams={streams} fyMonths={fyMonths} baselineData={baselineData}
               forecastData={forecastData} weeklyData={weeklyData} type="savings"/>
           </div>
           <div className="card" style={{ padding:20 }}>
@@ -2126,7 +2139,7 @@ function ExpenditurePage({ monthIdx, viewEpoch, fyStart, totalMonths, streams, s
         <div>
           <div className="card" style={{ padding:20, marginBottom:16 }}>
             <div className="sl" style={{ marginBottom:14 }}>{fyLabel(selFY,fyStart)} — Actual Expenditure</div>
-            <FYSummaryTable streams={streams} fyMonths={fyMonths} baselineData={baselineData}
+            <FYSummaryTable fyStart={fyStart} streams={streams} fyMonths={fyMonths} baselineData={baselineData}
               forecastData={forecastData} weeklyData={weeklyData} type="expenditure"/>
           </div>
         </div>
@@ -2337,7 +2350,7 @@ function BaselinePage({ monthIdx, viewEpoch, fyStart, totalMonths, incomeStreams
         <div style={{ fontFamily:"'Playfair Display'", fontSize:20, fontWeight:600 }}>Baselines</div>
       </div>
       <div style={{ fontSize:13, color:T.sub, marginBottom:18 }}>
-        Reference values, usually reviewed at the start of your financial year (<strong style={{color:T.accent}}>{MONTH_NAMES[fyStart]}</strong>). Click <strong style={{color:T.accent}}>✎ Edit</strong> to update any section for the selected FY.
+        Reference values, usually reviewed at the start of your {yearNoun(fyStart)}{fyStart !== 0 && <> (<strong style={{color:T.accent}}>{MONTH_NAMES[fyStart]}</strong>)</>}. Click <strong style={{color:T.accent}}>✎ Edit</strong> to update any section for the selected year.
       </div>
       <div style={{ display:"flex", gap:6, marginBottom:20, flexWrap:"wrap" }}>
         {fys.map(f=><button key={f.year} className={`fy-tab${selFY===f.year?" active":""}`} onClick={()=>setSelFY(f.year)}>{fyLabel(f.year,fyStart)}</button>)}
@@ -2358,7 +2371,7 @@ function BaselinePage({ monthIdx, viewEpoch, fyStart, totalMonths, incomeStreams
                 <thead><tr>
                   <th style={{ width:160, minWidth:160 }}>Category</th>
                   {fyMonths.map(mi=><th key={mi} style={{ fontSize:10 }}>{MONTHS[mi]?.short}</th>)}
-                  <th style={{ color:T.accent, minWidth:96 }}>FY Total</th>
+                  <th style={{ color:T.accent, minWidth:96 }}>{fyStart === 0 ? "Year Total" : "FY Total"}</th>
                 </tr></thead>
                 <tbody>
                   {streams.map(s=>(
@@ -3313,7 +3326,7 @@ function YoCentEApp() {
           <button className="btn btn-ghost btn-sm" onClick={()=>setCurrencyOpen(true)} title="Change currency" style={{ gap:5 }}>
             <span>{flagEmoji(currency.locale)}</span> {currency.code}
           </button>
-          <button className="btn btn-ghost btn-sm" onClick={()=>setFYSettingsOpen(true)} title="Financial year settings">⚙ FY Settings</button>
+          <button className="btn btn-ghost btn-sm" onClick={()=>setFYSettingsOpen(true)} title={`Your ${yearNoun(fyStart)}, and how far the timeline runs`}>⚙ Year</button>
           <button className="btn btn-ghost btn-sm" onClick={()=>{setImportState(null);setDataModalOpen(true);}} title="Back up or restore your data">⇅ Backup</button>
           <SaveStatus state={saveState} savedAt={savedAt} onSaveNow={saveNow}/>
         </div>
@@ -3329,9 +3342,11 @@ function YoCentEApp() {
             </button>
           ))}
           <div className="sidebar-meta" style={{ margin:"16px 6px 0", borderTop:`1px solid ${T.border}`, paddingTop:12 }}>
-            <div style={{ fontSize:10, color:T.sub, textTransform:"uppercase", letterSpacing:".08em", fontWeight:600, marginBottom:8, paddingLeft:8 }}>FY Config</div>
-            <div style={{ fontSize:11, color:T.sub, padding:"3px 8px" }}>Start: <span style={{ color:T.accent }}>{MONTH_NAMES[fyStart]}</span></div>
-            <div style={{ fontSize:11, color:T.sub, padding:"3px 8px" }}>End: <span style={{ color:T.accent }}>{MONTH_NAMES[(fyStart+11)%12]}</span></div>
+            <div style={{ fontSize:10, color:T.sub, textTransform:"uppercase", letterSpacing:".08em", fontWeight:600, marginBottom:8, paddingLeft:8 }}>Settings</div>
+            {fyStart !== 0 && <>
+              <div style={{ fontSize:11, color:T.sub, padding:"3px 8px" }}>FY start: <span style={{ color:T.accent }}>{MONTH_NAMES[fyStart]}</span></div>
+              <div style={{ fontSize:11, color:T.sub, padding:"3px 8px" }}>FY end: <span style={{ color:T.accent }}>{MONTH_NAMES[(fyStart+11)%12]}</span></div>
+            </>}
             <div style={{ fontSize:11, color:T.sub, padding:"3px 8px" }}>Currency: <span style={{ color:T.accent }}>{flagEmoji(currency.locale)} {currency.code}</span></div>
             <div style={{ margin:"12px 6px 0", borderTop:`1px solid ${T.border}`, paddingTop:10 }}>
               <div style={{ fontSize:10, color:T.sub, textTransform:"uppercase", letterSpacing:".08em", fontWeight:600, marginBottom:6, paddingLeft:2 }}>Categories</div>
