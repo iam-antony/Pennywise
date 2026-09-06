@@ -31,7 +31,7 @@ function makeMonths(epoch, count = MAX_MONTHS) {
 
 // fyStart: 0=Jan, 1=Feb, … 3=Apr (the UK tax year, and the default)
 function fyLabel(year, fyStart) {
-  return fyStart === 0 ? `FY ${year}` : `FY ${year}/${String(year + 1).slice(2)}`;
+  return fyStart === 0 ? String(year) : `FY ${year}/${String(year + 1).slice(2)}`;
 }
 
 // Everything below depends on where the window starts, so it is built against a
@@ -65,11 +65,11 @@ function makeCalendar(epoch = LEGACY_EPOCH) {
   return { epoch, MONTHS, getFYYear, getAllFYs, getFYMonths, fyLabel };
 }
 
-// The epoch a new profile should start from: the beginning of the financial
-// year they are currently in, so their first tracked year is a complete one.
-function epochForNewProfile(fyStart, now = new Date()) {
-  const year = now.getMonth() >= fyStart ? now.getFullYear() : now.getFullYear() - 1;
-  return { year, month: fyStart };
+// The epoch a new profile starts from: January of the year they are in, so the
+// timeline is always whole calendar years and every month of this year exists
+// whatever they later choose their financial year to be.
+function epochForNewProfile(now = new Date()) {
+  return { year: now.getFullYear(), month: 0 };
 }
 
 // How far `date` sits from the epoch, in months. Negative means before it.

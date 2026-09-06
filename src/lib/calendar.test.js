@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { MAX_MONTHS, LEGACY_EPOCH, makeCalendar, fyLabel } from "./calendar.js";
+import { MAX_MONTHS, LEGACY_EPOCH, makeCalendar, fyLabel, epochForNewProfile } from "./calendar.js";
 
 // These all pin the behaviour of a profile created before the timeline could
 // move. The epoch is now configurable (see timeline.test.js), but anyone who
@@ -82,6 +82,34 @@ describe("fyLabel", () => {
   it("spans two years unless the FY is the calendar year", () => {
     expect(fyLabel(2026, 3)).toBe("FY 2026/27");
     expect(fyLabel(2029, 3)).toBe("FY 2029/30");
-    expect(fyLabel(2026, 0)).toBe("FY 2026");
+    // A January year is just the year; calling it "FY 2026" teaches a term to
+    // someone who has no use for it.
+    expect(fyLabel(2026, 0)).toBe("2026");
+  });
+
+  it("still names a non-January year as a financial year", () => {
+    expect(fyLabel(2026, 3)).toBe("FY 2026/27");
+  });
+});
+
+describe("epochForNewProfile", () => {
+  it("starts a new profile at January of the current year", () => {
+    expect(epochForNewProfile(new Date(2026, 8, 15))).toEqual({ year: 2026, month: 0 });
+  });
+
+  it("does not move with the financial year the user picks", () => {
+    // The old behaviour aligned the epoch to the FY start, so an April year
+    // began the timeline in April and January to March did not exist.
+    const inApril = epochForNewProfile(new Date(2026, 3, 1));
+    const inDecember = epochForNewProfile(new Date(2026, 11, 31));
+    expect(inApril).toEqual({ year: 2026, month: 0 });
+    expect(inDecember).toEqual({ year: 2026, month: 0 });
+  });
+
+  it("gives every month of the current year, whatever the financial year", () => {
+    const { MONTHS, getFYMonths } = makeCalendar(epochForNewProfile(new Date(2026, 8, 1)));
+    expect(MONTHS[0].label).toMatch(/^Jan 2026/);
+    // April's financial year is still derivable, and still twelve months long.
+    expect(getFYMonths(2026, 3, 24)).toHaveLength(12);
   });
 });

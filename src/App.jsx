@@ -2894,7 +2894,7 @@ function YoCentEApp() {
 
   // Called when user completes onboarding
   const handleOnboardingComplete = useCallback(async ({ name, currency: c, fyStart: fy, monthlyIncome: mInc, savingsGoal: goal, savingsCats, expCats }) => {
-    const newEpoch = epochForNewProfile(fy);
+    const newEpoch = epochForNewProfile();
     setUserName(name);
     setCurrency(c);
     setFYStart(fy);

@@ -27,13 +27,12 @@ describe("epoch", () => {
     expect(MONTHS[12].absYear).toBe(2024);
   });
 
-  it("starts a new profile at the beginning of the user's current FY", () => {
-    // September, April financial year → the year started this April
-    expect(epochForNewProfile(3, new Date(2026, 8, 15))).toEqual({ year: 2026, month: 3 });
-    // February, April financial year → the year started last April
-    expect(epochForNewProfile(3, new Date(2026, 1, 15))).toEqual({ year: 2025, month: 3 });
-    // calendar year
-    expect(epochForNewProfile(0, new Date(2026, 8, 15))).toEqual({ year: 2026, month: 0 });
+  it("starts a new profile in January, whatever year the user keeps", () => {
+    // The epoch used to follow the financial year, so an April year began the
+    // timeline in April and January to March simply did not exist as months.
+    expect(epochForNewProfile(new Date(2026, 8, 15))).toEqual({ year: 2026, month: 0 });
+    expect(epochForNewProfile(new Date(2026, 1, 15))).toEqual({ year: 2026, month: 0 });
+    expect(epochForNewProfile(new Date(2026, 11, 31))).toEqual({ year: 2026, month: 0 });
   });
 
   it("locates today's month relative to the epoch", () => {
@@ -77,8 +76,9 @@ describe("financial-year maths against a moved epoch", () => {
     expect(getFYMonths(2026, 3, 48)).toHaveLength(12);
   });
 
-  it("labels a calendar year without the slash", () => {
-    expect(fyLabel(2026, 0)).toBe("FY 2026");
+  it("names a calendar year plainly and a financial year fully", () => {
+    // Nothing distinguishes a January year from the year, so it is just 2026.
+    expect(fyLabel(2026, 0)).toBe("2026");
     expect(fyLabel(2026, 3)).toBe("FY 2026/27");
   });
 
