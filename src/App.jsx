@@ -260,16 +260,26 @@ function FormulaCell({ value, onCommit, placeholder, style, label, cellId }) {
 // A card is a button when it leads somewhere. Rendering a clickable div would
 // put it out of reach of the keyboard, which is the fault P4-05 fixed for the
 // sidebar — not worth reintroducing here.
-function StatCard({ icon, label, value, sub, delta, deltaLabel = "vs baseline", posGood = true, valueTone, onOpen, openLabel }) {
-  const { fmtS } = useMoney();
-  const good = posGood ? T.success : T.danger, bad = posGood ? T.danger : T.success;
+function StatCard({ icon, label, value, sub, delta, deltaRef = "baseline", posGood = true, valueTone, onOpen, openLabel }) {
+  const { fmt } = useMoney();
+  // Landing exactly on the plan is not missing it. "delta >= 0" lumped zero in
+  // with overspending, so a month spent precisely to forecast — and every
+  // brand-new profile, where everything is zero — was painted red.
+  const EPS = 0.005;
+  const over = delta > EPS, under = delta < -EPS;
+  const deltaTone = !over && !under ? T.sub : (over === posGood ? T.success : T.danger);
+  // "£200 below baseline" says which way it went; "−£200 vs baseline" made the
+  // reader work the sign out for themselves.
+  const deltaText = !over && !under
+    ? `On ${deltaRef}`
+    : `${fmt(Math.abs(delta))} ${over ? "over" : "below"} ${deltaRef}`;
   const body = (
     <>
       <div aria-hidden="true" style={{ fontSize:20, marginBottom:5 }}>{icon}</div>
       <div className="sl" style={{ marginBottom:4 }}>{label}</div>
       <div style={{ fontFamily:"'Playfair Display'", fontSize:22, fontWeight:600, color:valueTone || T.accent }}>{value}</div>
       {sub && <div style={{ fontSize:12, color:T.sub, marginTop:3 }}>{sub}</div>}
-      {delta !== undefined && <div style={{ fontSize:12, color:delta >= 0 ? good : bad, marginTop:4 }}>{fmtS(delta)} {deltaLabel}</div>}
+      {delta !== undefined && <div style={{ fontSize:12, color:deltaTone, marginTop:4 }}>{deltaText}</div>}
     </>
   );
   if (!onOpen) return <div className="stat-card">{body}</div>;
@@ -1879,12 +1889,12 @@ function Dashboard({ monthIdx, viewEpoch, fyStart, totalMonths, incomeStreams, s
         <StatCard icon="🏦" label={viewMode==="fy"?(fyStart===0?"Year Saved":"FY Saved"):"Total Saved"}
           value={fmt(viewMode==="fy"?fyActSav:actSav)}
           sub={`Baseline: ${fmt(viewMode==="fy"?fyBasSav:basSav)} · Forecast: ${fmt(viewMode==="fy"?fyFcSav:fcSav)}`}
-          delta={viewMode==="fy"?undefined:actSav-fcSav} deltaLabel="vs forecast"
+          delta={viewMode==="fy"?undefined:actSav-fcSav} deltaRef="forecast"
           onOpen={()=>onOpenPage("savings")} openLabel="Total saved — open the Savings page"/>
         <StatCard icon="🧾" label={viewMode==="fy"?(fyStart===0?"Year Spent":"FY Spent"):"Total Spent"}
           value={fmt(viewMode==="fy"?fyActExp:actExp)}
           sub={`Baseline: ${fmt(viewMode==="fy"?fyBasExp:basExp)} · Forecast: ${fmt(viewMode==="fy"?fyFcExp:fcExp)}`}
-          delta={viewMode==="fy"?undefined:actExp-fcExp} deltaLabel="vs forecast" posGood={false}
+          delta={viewMode==="fy"?undefined:actExp-fcExp} deltaRef="forecast" posGood={false}
           onOpen={()=>onOpenPage("expenditure")} openLabel="Total spent — open the Expenditure page"/>
         {/* Net Remaining is derived and has no page of its own; it scrolls to the
             flow diagram, which is the explanation of where the money went. */}
