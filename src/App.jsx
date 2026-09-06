@@ -1767,6 +1767,21 @@ function Dashboard({ monthIdx, viewEpoch, fyStart, totalMonths, incomeStreams, s
       <FYToolbar fyStart={fyStart} monthIdx={monthIdx} totalMonths={totalMonths} selectedFY={selFY} onSelectFY={setSelFY}
         viewMode={viewMode} onViewMode={setViewMode} onSettings={onFYSettings} />
 
+      {/* Where you stand. A position rather than a flow, kept separate so the
+          two are not read as the same kind of figure, and kept first so the
+          slowest-moving number is never the one buried at the bottom. */}
+      <div className="sl" style={{ marginBottom:9 }}>Where you stand</div>
+      <div style={{ display:"flex", gap:12, flexWrap:"wrap", marginBottom:22 }}>
+        <StatCard icon="◆" label="Net Worth" value={fmt(netWorthTotal)}
+          sub={netWorthChange === null ? "Nothing recorded yet"
+            : `${fmtS(netWorthChange)} on ${MONTHS[monthIdx-1]?.label}`}
+          onOpen={()=>onOpenPage("networth")} openLabel="Net worth — open the Net Worth page"/>
+        <StatCard icon="◷" label="Owed to You" value={fmt(owedOutstanding)}
+          sub={owedOverdue > 0 ? `${owedOverdue} past its due date` : `${owedCount} ${owedCount === 1 ? "loan" : "loans"} tracked`}
+          valueTone={owedOverdue > 0 ? T.danger : undefined}
+          onOpen={()=>onOpenPage("moneyowed")} openLabel="Owed to you — open the Money Owed page"/>
+      </div>
+
       {/* Money that moved. Every card opens the page behind it. */}
       <div className="sl" style={{ marginBottom:9 }}>{viewMode==="fy" ? fyLabel(selFY, fyStart) : MONTHS[monthIdx]?.label}</div>
       <div style={{ display:"flex", gap:12, flexWrap:"wrap", marginBottom:22 }}>
@@ -1792,32 +1807,6 @@ function Dashboard({ monthIdx, viewEpoch, fyStart, totalMonths, incomeStreams, s
           openLabel="Net remaining — see where the money went"/>
       </div>
 
-      {/* Where you stand. A position, not a flow — separated so the two are not
-          read as the same kind of figure. */}
-      <div className="sl" style={{ marginBottom:9 }}>Where you stand</div>
-      <div style={{ display:"flex", gap:12, flexWrap:"wrap", marginBottom:22 }}>
-        <StatCard icon="◆" label="Net Worth" value={fmt(netWorthTotal)}
-          sub={netWorthChange === null ? "Nothing recorded yet"
-            : `${fmtS(netWorthChange)} on ${MONTHS[monthIdx-1]?.label}`}
-          onOpen={()=>onOpenPage("networth")} openLabel="Net worth — open the Net Worth page"/>
-        <StatCard icon="◷" label="Owed to You" value={fmt(owedOutstanding)}
-          sub={owedOverdue > 0 ? `${owedOverdue} past its due date` : `${owedCount} ${owedCount === 1 ? "loan" : "loans"} tracked`}
-          valueTone={owedOverdue > 0 ? T.danger : undefined}
-          onOpen={()=>onOpenPage("moneyowed")} openLabel="Owed to you — open the Money Owed page"/>
-      </div>
-
-      {/* Income Flow Sankey */}
-      <div ref={sankeyRef} className="card" style={{ padding:20, marginBottom:16 }}>
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:4 }}>
-          <div style={{ fontFamily:"'Playfair Display'", fontSize:15, fontWeight:600 }}>Income Distribution</div>
-          <div style={{ fontSize:11, color:T.sub }}>{viewMode==="fy" ? fyLabel(selFY, fyStart) : MONTHS[monthIdx]?.label} · hover a flow to inspect</div>
-        </div>
-        <div style={{ fontSize:12, color:T.sub, marginBottom:16 }}>Where your income is being distributed across savings, investments and expenditure categories.</div>
-        <SankeyDiagram
-          incomeStreams={incomeStreams} savingsStreams={savingsStreams} expStreams={expStreams} savingsTypes={savingsTypes}
-          incomeActual={incomeActual} savingsWeekly={savingsWeekly} expWeekly={expWeekly}
-          monthIdx={monthIdx} fyMonths={fyMonths} viewMode={viewMode}/>
-      </div>
       {/* Pace. Three bars, whatever the category count — per-category detail
           lives on the tab behind each one. */}
       <div className="card" style={{ padding:20, marginBottom:16 }}>
@@ -1841,7 +1830,21 @@ function Dashboard({ monthIdx, viewEpoch, fyStart, totalMonths, incomeStreams, s
         <PaceBar label="Spending" icon="🧾" color={T.warning} lowerIsBetter
           actual={expPace.actual} target={expPace.target} mark={expPace.mark}
           sub={catSub(expStreams, "No spending categories yet")}/>
+      </div>      {/* Income Flow Sankey — last, being the most detailed thing here and the
+          only one you go looking for rather than glance at. The Net Remaining
+          card scrolls down to it. */}
+      <div ref={sankeyRef} className="card" style={{ padding:20, marginBottom:16 }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:4 }}>
+          <div style={{ fontFamily:"'Playfair Display'", fontSize:15, fontWeight:600 }}>Income Distribution</div>
+          <div style={{ fontSize:11, color:T.sub }}>{viewMode==="fy" ? fyLabel(selFY, fyStart) : MONTHS[monthIdx]?.label} · hover a flow to inspect</div>
+        </div>
+        <div style={{ fontSize:12, color:T.sub, marginBottom:16 }}>Where your income is being distributed across savings, investments and expenditure categories.</div>
+        <SankeyDiagram
+          incomeStreams={incomeStreams} savingsStreams={savingsStreams} expStreams={expStreams} savingsTypes={savingsTypes}
+          incomeActual={incomeActual} savingsWeekly={savingsWeekly} expWeekly={expWeekly}
+          monthIdx={monthIdx} fyMonths={fyMonths} viewMode={viewMode}/>
       </div>
+
     </div>
   );
 }
