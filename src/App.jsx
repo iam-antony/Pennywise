@@ -2513,7 +2513,12 @@ function Onboarding({ onComplete, onRestore, importState }) {
   const [customYear, setCustomYear] = useState(false);
   const [yearHint, setYearHint] = useState(null);
   const [monthlyIncome, setMonthlyIncome] = useState("");
-  const [savingsGoal, setSavingsGoal] = useState("");
+  // Held as a monthly figure. A year's worth is a daunting number to name
+  // before you have entered anything, and the app stores an annual goal, so
+  // the twelve is applied on the way out rather than asked of the user.
+  const [monthlyGoal, setMonthlyGoal] = useState("");
+  // null until asked. Only reached when no goal was set.
+  const [wantsSavings, setWantsSavings] = useState(null);
   const [savingsCats, setSavingsCats] = useState(["Emergency Fund","Personal Savings","Investments"]);
   const [expCats, setExpCats] = useState(["Rent / Mortgage","Groceries","Subscriptions","Transport"]);
   const [customSav, setCustomSav] = useState("");
@@ -2552,10 +2557,23 @@ function Onboarding({ onComplete, onRestore, importState }) {
   };
 
   const handleFinish = () => {
-    onComplete({ name, currency, fyStart, monthlyIncome: parseFloat(monthlyIncome) || 0, savingsGoal: parseFloat(savingsGoal) || 0, savingsCats, expCats });
+    onComplete({ name, currency, fyStart, monthlyIncome: parseFloat(monthlyIncome) || 0,
+      savingsGoal: (parseFloat(monthlyGoal) || 0) * 12, savingsCats, expCats });
   };
 
   const TOTAL_STEPS = 7;
+
+  // Income and the goal are the two steps a new user may simply not have an
+  // answer for. Continuing past a blank field already worked, but nothing said
+  // so, and an empty box with a Continue button reads as an unfinished task.
+  const goalSet = parseFloat(monthlyGoal) > 0;
+  const showSavingsNudge = !goalSet && wantsSavings === null;
+  const stepSkippable = [false, false, true, true, false, false, false];
+  const skipStep = () => {
+    if (step === 2) setMonthlyIncome("");
+    if (step === 3) setMonthlyGoal("");
+    next();
+  };
   const progress = (step / (TOTAL_STEPS - 1)) * 100;
 
   const stepValid = [
@@ -2563,7 +2581,9 @@ function Onboarding({ onComplete, onRestore, importState }) {
     true,                              // 1 currency (always valid)
     true,                              // 2 monthly income
     true,                              // 3 savings goal
-    savingsCats.length > 0,            // 4 savings cats
+    // Nothing is assumed for someone who skipped the goal: they answer the
+    // nudge, and "not right now" is a complete answer.
+    showSavingsNudge ? false : wantsSavings === false ? true : savingsCats.length > 0,  // 4 savings
     expCats.length > 0,                // 5 exp cats
     true,                              // 6 your year
   ];
@@ -2653,7 +2673,7 @@ function Onboarding({ onComplete, onRestore, importState }) {
     // ── STEP 2: Monthly Income ──
     <div key={2} style={{ textAlign:"center" }}>
       <div style={{ fontSize:44, marginBottom:12 }}>💷</div>
-      <h2 style={{ fontFamily:"'Playfair Display'", fontSize:24, fontWeight:600, color:T.text, marginBottom:8 }}>Monthly take-home income</h2>
+      <h2 style={{ fontFamily:"'Playfair Display'", fontSize:24, fontWeight:600, color:T.text, marginBottom:8 }}>Monthly income</h2>
       <p style={{ fontSize:14, color:T.sub, maxWidth:420, margin:"0 auto 28px" }}>
         Roughly how much do you bring home each month after tax? This seeds your income baseline — you can refine it per-month later.
       </p>
@@ -2674,38 +2694,79 @@ function Onboarding({ onComplete, onRestore, importState }) {
     </div>,
 
     // ── STEP 3: Savings Goal ──
+    // Asked monthly. "Save £6,000 this year" is a number people flinch at;
+    // "£500 a month" is the same commitment in a shape they can picture, and
+    // the year's total is shown back to them anyway.
     <div key={3} style={{ textAlign:"center" }}>
       <div style={{ fontSize:44, marginBottom:12 }}>🎯</div>
-      <h2 style={{ fontFamily:"'Playfair Display'", fontSize:24, fontWeight:600, color:T.text, marginBottom:8 }}>Annual savings goal</h2>
+      <h2 style={{ fontFamily:"'Playfair Display'", fontSize:24, fontWeight:600, color:T.text, marginBottom:8 }}>Monthly savings goal</h2>
       <p style={{ fontSize:14, color:T.sub, maxWidth:400, margin:"0 auto 28px" }}>
-        How much would you like to save this year? You can update this anytime.
+        Roughly how much would you like to put aside each month, across savings and investments? You can change this any time.
       </p>
       <div style={{ maxWidth:300, margin:"0 auto" }}>
-        <div style={{ display:"flex", alignItems:"center", background:T.inputBg, border:`1.5px solid ${savingsGoal ? T.accent : T.border}`, borderRadius:12, overflow:"hidden", transition:"border-color .2s" }}>
+        <div style={{ display:"flex", alignItems:"center", background:T.inputBg, border:`1.5px solid ${monthlyGoal ? T.accent : T.border}`, borderRadius:12, overflow:"hidden", transition:"border-color .2s" }}>
           <span style={{ padding:"16px 16px", fontSize:22, color:T.accent, fontWeight:700, borderRight:`1px solid ${T.border}` }}>{currency.symbol}</span>
-          <input type="number" value={savingsGoal} onChange={e=>setSavingsGoal(e.target.value)}
+          <input type="number" value={monthlyGoal} onChange={e=>setMonthlyGoal(e.target.value)}
             placeholder="0"
             style={{ background:"transparent", border:"none", outline:"none", color:T.text, fontSize:28, fontWeight:600, fontFamily:"'DM Sans'", padding:"16px 18px", width:"100%" }} />
         </div>
-        {savingsGoal && parseFloat(savingsGoal) > 0 && (
+        {monthlyGoal && parseFloat(monthlyGoal) > 0 && (
           <div style={{ marginTop:16, padding:"10px 16px", background:"rgba(82,196,122,.08)", border:`1px solid rgba(82,196,122,.25)`, borderRadius:8, fontSize:13, color:T.success }}>
-            ✓ That's {currency.symbol}{(parseFloat(savingsGoal)/12).toFixed(0)} per month
+            ✓ That's {currency.symbol}{(parseFloat(monthlyGoal)*12).toLocaleString()} per year
             {monthlyIncome && parseFloat(monthlyIncome) > 0 && (
-              <span> · {Math.round(parseFloat(savingsGoal)/12/parseFloat(monthlyIncome)*100)}% of income</span>
+              <span> · {Math.round(parseFloat(monthlyGoal)/parseFloat(monthlyIncome)*100)}% of income</span>
             )}
           </div>
         )}
-        <p style={{ marginTop:14, fontSize:12, color:T.sub }}>Skip this for now — you can set it later in Settings.</p>
+        <p style={{ marginTop:14, fontSize:12, color:T.sub }}>No idea yet? Skip it — the app works just as well without one.</p>
       </div>
     </div>,
 
     // ── STEP 4: Savings Categories ──
+    // Someone who named a goal has already said they want to save, so they go
+    // straight to choosing categories. Someone who skipped it used to be handed
+    // three pre-ticked ones, which quietly decided for them; they are asked.
     <div key={4}>
-      <div style={{ textAlign:"center", marginBottom:24 }}>
-        <div style={{ fontSize:44, marginBottom:12 }}>🏦</div>
-        <h2 style={{ fontFamily:"'Playfair Display'", fontSize:24, fontWeight:600, color:T.text, marginBottom:8 }}>Savings categories</h2>
-        <p style={{ fontSize:14, color:T.sub }}>What are you saving for? Select all that apply and add your own.</p>
-      </div>
+      {showSavingsNudge ? (
+        <div style={{ textAlign:"center" }}>
+          <div style={{ fontSize:44, marginBottom:12 }}>🌱</div>
+          <h2 style={{ fontFamily:"'Playfair Display'", fontSize:24, fontWeight:600, color:T.text, marginBottom:8 }}>Would you like to start saving?</h2>
+          <p style={{ fontSize:14, color:T.sub, maxWidth:430, margin:"0 auto 24px" }}>
+            You skipped the goal, which is completely fine. Saving is easier to start
+            small than to start perfectly — even a little each month counts.
+          </p>
+          <div style={{ display:"grid", gap:10, maxWidth:440, margin:"0 auto" }}>
+            <button onClick={() => setWantsSavings(true)}
+              style={{ textAlign:"left", padding:"14px 16px", borderRadius:12, cursor:"pointer",
+                background:T.inputBg, border:`1.5px solid ${T.border}`, font:"inherit", transition:"all .15s" }}>
+              <span style={{ display:"block", fontSize:14, fontWeight:600, color:T.text }}>Yes, let&rsquo;s set something up</span>
+              <span style={{ display:"block", fontSize:12, color:T.sub, marginTop:2 }}>We&rsquo;ll suggest a few categories to choose from</span>
+            </button>
+            <button onClick={() => { setWantsSavings(false); setSavingsCats([]); }}
+              style={{ textAlign:"left", padding:"14px 16px", borderRadius:12, cursor:"pointer",
+                background:T.inputBg, border:`1.5px solid ${T.border}`, font:"inherit", transition:"all .15s" }}>
+              <span style={{ display:"block", fontSize:14, fontWeight:600, color:T.text }}>Not right now</span>
+              <span style={{ display:"block", fontSize:12, color:T.sub, marginTop:2 }}>You can add savings any time from the Savings page</span>
+            </button>
+          </div>
+        </div>
+      ) : wantsSavings === false ? (
+        <div style={{ textAlign:"center" }}>
+          <div style={{ fontSize:44, marginBottom:12 }}>👍</div>
+          <h2 style={{ fontFamily:"'Playfair Display'", fontSize:24, fontWeight:600, color:T.text, marginBottom:8 }}>No problem</h2>
+          <p style={{ fontSize:14, color:T.sub, maxWidth:400, margin:"0 auto 20px" }}>
+            We&rsquo;ll leave savings out for now. Everything else still works, and you can
+            add it whenever you are ready.
+          </p>
+          <button className="btn btn-ghost btn-sm" onClick={() => setWantsSavings(null)}>Actually, let me pick some</button>
+        </div>
+      ) : (
+        <>
+          <div style={{ textAlign:"center", marginBottom:24 }}>
+            <div style={{ fontSize:44, marginBottom:12 }}>🏦</div>
+            <h2 style={{ fontFamily:"'Playfair Display'", fontSize:24, fontWeight:600, color:T.text, marginBottom:8 }}>Savings categories</h2>
+            <p style={{ fontSize:14, color:T.sub }}>What are you saving for? Select all that apply and add your own.</p>
+          </div>
       <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:8, marginBottom:14 }}>
         {SUGGESTED_SAVINGS.map(({ label, icon }) => {
           const on = savingsCats.includes(label);
@@ -2733,6 +2794,23 @@ function Onboarding({ onComplete, onRestore, importState }) {
           {c} <button onClick={()=>setSavingsCats(p=>p.filter(x=>x!==c))} style={{ background:"none",border:"none",cursor:"pointer",color:T.accent,lineHeight:1 }}>✕</button>
         </div>
       ))}
+      {/* These are a starting point, not a commitment. Saying so here stops
+          people agonising over wording they can change in a minute. */}
+      <p style={{ marginTop:16, fontSize:12, color:T.sub, textAlign:"center" }}>
+        These are only a starting point — you can rename, add or remove any of them
+        once you are set up, so they do not have to be the final names.
+      </p>
+          {/* Someone who arrived here through the nudge can still change their
+              mind. Without this, unticking everything left Continue disabled
+              with no way back to the answer they had already been offered. */}
+          {!goalSet && (
+            <div style={{ textAlign:"center", marginTop:10 }}>
+              <button className="btn btn-ghost btn-sm"
+                onClick={() => { setWantsSavings(false); setSavingsCats([]); }}>Actually, not right now</button>
+            </div>
+          )}
+        </>
+      )}
     </div>,
 
     // ── STEP 5: Expenditure Categories ──
@@ -2748,12 +2826,12 @@ function Onboarding({ onComplete, onRestore, importState }) {
           return (
             <button key={label} onClick={() => toggleCat(expCats, setExpCats, label)}
               style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 14px",
-                background: on ? "rgba(240,100,100,.1)" : T.inputBg,
-                border:`1.5px solid ${on ? T.danger : T.border}`, borderRadius:10, cursor:"pointer",
+                background: on ? "rgba(212,168,83,.12)" : T.inputBg,
+                border:`1.5px solid ${on ? T.accent : T.border}`, borderRadius:10, cursor:"pointer",
                 transition:"all .15s", textAlign:"left" }}>
               <span style={{ fontSize:20 }}>{icon}</span>
-              <span style={{ fontSize:13, fontWeight: on ? 600 : 400, color: on ? T.danger : T.sub, fontFamily:"'DM Sans'" }}>{label}</span>
-              {on && <span style={{ marginLeft:"auto", color:T.danger, fontSize:16 }}>✓</span>}
+              <span style={{ fontSize:13, fontWeight: on ? 600 : 400, color: on ? T.accent : T.sub, fontFamily:"'DM Sans'" }}>{label}</span>
+              {on && <span style={{ marginLeft:"auto", color:T.accent, fontSize:16 }}>✓</span>}
             </button>
           );
         })}
@@ -2765,10 +2843,16 @@ function Onboarding({ onComplete, onRestore, importState }) {
         <button className="btn btn-ghost" onClick={()=>addCustom(customExp,expCats,setExpCats,setCustomExp)}>Add</button>
       </div>
       {expCats.filter(c=>!SUGGESTED_EXP.find(s=>s.label===c)).map(c=>(
-        <div key={c} style={{ display:"inline-flex", alignItems:"center", gap:6, margin:"6px 4px 0 0", padding:"4px 10px", background:"rgba(240,100,100,.1)", border:`1px solid ${T.danger}`, borderRadius:20, fontSize:12, color:T.danger }}>
-          {c} <button onClick={()=>setExpCats(p=>p.filter(x=>x!==c))} style={{ background:"none",border:"none",cursor:"pointer",color:T.danger,lineHeight:1 }}>✕</button>
+        <div key={c} style={{ display:"inline-flex", alignItems:"center", gap:6, margin:"6px 4px 0 0", padding:"4px 10px", background:"rgba(212,168,83,.1)", border:`1px solid ${T.accent}`, borderRadius:20, fontSize:12, color:T.accent }}>
+          {c} <button onClick={()=>setExpCats(p=>p.filter(x=>x!==c))} style={{ background:"none",border:"none",cursor:"pointer",color:T.accent,lineHeight:1 }}>✕</button>
         </div>
       ))}
+      {/* These are a starting point, not a commitment. Saying so here stops
+          people agonising over wording they can change in a minute. */}
+      <p style={{ marginTop:16, fontSize:12, color:T.sub, textAlign:"center" }}>
+        These are only a starting point — you can rename, add or remove any of them
+        once you are set up, so they do not have to be the final names.
+      </p>
     </div>,
 
     // ── STEP 6: Your year ──
@@ -2885,6 +2969,10 @@ function Onboarding({ onComplete, onRestore, importState }) {
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:32, paddingTop:24, borderTop:`1px solid ${T.border}` }}>
           <button className="btn btn-ghost" onClick={back} style={{ visibility: step===0 ? "hidden" : "visible" }}>← Back</button>
           <div style={{ fontSize:12, color:T.sub }}>{step+1} of {TOTAL_STEPS}</div>
+          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+          {stepSkippable[step] && (
+            <button className="btn btn-ghost" onClick={skipStep}>Skip for now</button>
+          )}
           {step < TOTAL_STEPS - 1 ? (
             <button className="btn btn-primary" onClick={next} disabled={!stepValid[step]}
               style={{ opacity: stepValid[step] ? 1 : 0.4, cursor: stepValid[step] ? "pointer" : "not-allowed" }}>
@@ -2893,9 +2981,10 @@ function Onboarding({ onComplete, onRestore, importState }) {
           ) : (
             <button className="btn btn-primary" onClick={handleFinish} disabled={!stepValid[step]}
               style={{ opacity: stepValid[step] ? 1 : 0.4, background:`linear-gradient(135deg, ${T.accent}, #e8c070)` }}>
-              Launch my tracker 🚀
+              Start my journey 🚀
             </button>
           )}
+          </div>
         </div>
       </div>
     </div>
