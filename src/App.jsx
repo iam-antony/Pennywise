@@ -422,7 +422,7 @@ function CurrencyModal({ current, onSave, onClose }) {
                   border:`1px solid ${active ? T.accent : T.border}`,
                   borderRadius:8, padding:"10px 12px", cursor:"pointer", textAlign:"left",
                   transition:"all .15s", display:"flex", alignItems:"center", gap:9 }}>
-                <span style={{ fontSize:20, lineHeight:1 }}>{flagEmoji(c.locale)}</span>
+                <span style={{ fontSize:20, lineHeight:1, color:T.accent }}>{flagEmoji(c.locale)}</span>
                 <div style={{ overflow:"hidden" }}>
                   <div style={{ fontSize:12, fontWeight:600, color: active ? T.accent : T.text, whiteSpace:"nowrap" }}>
                     {c.code} <span style={{ color:T.sub, fontWeight:400 }}>{c.symbol}</span>
@@ -2531,7 +2531,7 @@ function Onboarding({ onComplete, onRestore, importState }) {
               style={{ background: active ? "rgba(212,168,83,.15)" : T.inputBg,
                 border:`1.5px solid ${active ? T.accent : T.border}`, borderRadius:10, padding:"10px 12px",
                 cursor:"pointer", textAlign:"left", transition:"all .15s", display:"flex", alignItems:"center", gap:8 }}>
-              <span style={{ fontSize:22 }}>{flagEmoji(c.locale)}</span>
+              <span style={{ fontSize:22, color:T.accent }}>{flagEmoji(c.locale)}</span>
               <div>
                 <div style={{ fontSize:12, fontWeight:700, color: active ? T.accent : T.text }}>{c.code} <span style={{ color:T.sub, fontWeight:400 }}>{c.symbol}</span></div>
                 <div style={{ fontSize:10, color:T.sub, marginTop:1 }}>{c.name}</div>
