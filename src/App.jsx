@@ -283,19 +283,97 @@ function StatCard({ icon, label, value, sub, delta, deltaLabel = "vs baseline", 
   );
 }
 
+// ─── YEAR PICKER ──────────────────────────────────────────────────────────────
+// A row of year chips cannot survive its own success. Every chip is 59px on a
+// calendar year and 97px on a financial one, and the timeline runs to eleven
+// years, so the strip needed 1,117px of a 497px bar on a narrow window and
+// wrapped onto a second row even at 1440. This is the control already used for
+// months in the header: steppers for the adjacent year, which is the common
+// move, and a list for anything further.
+function YearPicker({ fys, selectedFY, fyStart, onSelectFY }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+  const listRef = useRef(null);
+
+  const idx = fys.findIndex(f => f.year === selectedFY);
+  const current = idx >= 0 ? fys[idx] : null;
+  const atFirst = idx <= 0;
+  const atLast = idx < 0 || idx >= fys.length - 1;
+
+  useEffect(() => {
+    if (!open) return;
+    // Show the selected year rather than the top of a list of eleven.
+    listRef.current?.querySelector('[data-active="true"]')?.scrollIntoView({ block: "nearest" });
+    const onKey = e => {
+      if (e.key === "Escape") { setOpen(false); wrapRef.current?.querySelector("[aria-haspopup]")?.focus(); }
+    };
+    const onDown = e => { if (!wrapRef.current?.contains(e.target)) setOpen(false); };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onDown);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("mousedown", onDown);
+    };
+  }, [open]);
+
+  const step = by => { const n = fys[idx + by]; if (n) onSelectFY(n.year); };
+  const choose = y => { onSelectFY(y); setOpen(false); };
+
+  return (
+    <div ref={wrapRef} style={{ position:"relative", display:"flex", alignItems:"center", gap:5 }}>
+      <button className="month-btn" onClick={() => step(-1)} disabled={atFirst}
+        aria-label="Previous year" style={atFirst ? { opacity:.3, cursor:"default" } : undefined}>‹</button>
+
+      <button onClick={() => setOpen(o => !o)} aria-haspopup="listbox" aria-expanded={open}
+        title={`Choose which ${yearNoun(fyStart)} to show`}
+        style={{ fontSize:13, fontWeight:600, minWidth:118, cursor:"pointer", background:T.inputBg,
+          border:`1px solid ${open ? T.accent : T.border}`, color:T.accent, fontFamily:"'DM Sans'",
+          padding:"6px 12px", borderRadius:8, display:"flex", alignItems:"center",
+          justifyContent:"center", gap:7, transition:"border-color .15s" }}>
+        {fyLabel(selectedFY, fyStart)}
+        {current?.partial && <span title={`Only ${current.indices.length} of 12 months`}
+          style={{ fontSize:9, color:T.sub, fontWeight:400 }}>part</span>}
+        <span aria-hidden="true" style={{ fontSize:9, color:T.sub }}>▼</span>
+      </button>
+
+      <button className="month-btn" onClick={() => step(1)} disabled={atLast}
+        aria-label="Next year" style={atLast ? { opacity:.3, cursor:"default" } : undefined}>›</button>
+
+      {open && (
+        <div ref={listRef} role="listbox" aria-label={`Choose a ${yearNoun(fyStart)}`}
+          style={{ position:"absolute", top:"calc(100% + 8px)", left:"50%", transform:"translateX(-50%)",
+            background:T.card, border:`1px solid ${T.border}`, borderRadius:12, padding:6, zIndex:150,
+            minWidth:190, maxHeight:264, overflowY:"auto", boxShadow:"0 10px 30px rgba(0,0,0,.5)" }}>
+          {fys.map(f => {
+            const active = f.year === selectedFY;
+            return (
+              <button key={f.year} role="option" aria-selected={active} data-active={active}
+                onClick={() => choose(f.year)}
+                style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", gap:10,
+                  width:"100%", textAlign:"left", padding:"7px 10px", borderRadius:8, cursor:"pointer",
+                  fontFamily:"'DM Sans'", fontSize:13, border:"1px solid transparent",
+                  background: active ? "rgba(212,168,83,.15)" : "transparent",
+                  borderColor: active ? T.accent : "transparent",
+                  color: active ? T.accent : T.text, fontWeight: active ? 600 : 400 }}>
+                <span>{fyLabel(f.year, fyStart)}</span>
+                {f.partial && <span style={{ fontSize:11, color:T.sub }}>{f.indices.length} of 12</span>}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── FY TOOLBAR ───────────────────────────────────────────────────────────────
 function FYToolbar({ fyStart, monthIdx, totalMonths = 48, selectedFY, onSelectFY, viewMode, onViewMode, onSettings }) {
   const { getAllFYs } = useCalendar();
   const fys = useMemo(() => getAllFYs(fyStart, totalMonths), [getAllFYs, fyStart, totalMonths]);
   return (
     <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap", marginBottom:18, padding:"10px 14px", background:T.inputBg, borderRadius:10, border:`1px solid ${T.border}` }}>
-      <div className="fy-tabs" style={{ display:"flex", gap:5, flexWrap:"wrap", flex:1 }}>
-        {fys.map(f => (
-          <button key={f.year} className={`fy-tab${selectedFY === f.year ? " active" : ""}`} onClick={() => onSelectFY(f.year)}>
-            {fyLabel(f.year, fyStart)}
-          </button>
-        ))}
-      </div>
+      <YearPicker fys={fys} selectedFY={selectedFY} fyStart={fyStart} onSelectFY={onSelectFY}/>
+      <div style={{ flex:1 }}/>
       <div className="view-toggle">
         <button className={`vt-btn${viewMode === "month" ? " active" : ""}`} onClick={() => onViewMode("month")}>Monthly</button>
         <button className={`vt-btn${viewMode === "fy" ? " active" : ""}`} onClick={() => onViewMode("fy")}>{fyStart === 0 ? "Year" : "FY View"}</button>
@@ -887,12 +965,12 @@ function CategoryModal({ title, streams, kinds, onSave, onClose }) {
 }
 
 // ─── BASELINE EDITOR ─────────────────────────────────────────────────────────
-function BaselineEditorModal({ section, streams, data, fyStart, totalMonths, onSave, onClose }) {
+function BaselineEditorModal({ section, streams, data, fyStart, monthIdx, totalMonths, onSave, onClose }) {
   const dialog = useDialog(onClose);
-  const { MONTHS, getFYMonths, getAllFYs } = useCalendar();
+  const { MONTHS, getFYYear, getFYMonths, getAllFYs } = useCalendar();
   const { fmt } = useMoney();
   const fys = useMemo(() => getAllFYs(fyStart, totalMonths), [getAllFYs, fyStart, totalMonths]);
-  const [selFY, setSelFY] = useState(fys[0]?.year);
+  const [selFY, setSelFY] = useState(() => getFYYear(monthIdx, fyStart) ?? fys[0]?.year);
   const [draft, setDraft] = useState(() => JSON.parse(JSON.stringify(data)));
   const [fillVal, setFillVal] = useState({});
 
@@ -931,9 +1009,7 @@ function BaselineEditorModal({ section, streams, data, fyStart, totalMonths, onS
       <div {...dialog} aria-label="Edit baselines" className="modal modal-wide">
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
           <div style={{ fontFamily:"'Playfair Display'", fontSize:17, fontWeight:600 }}>Edit {section} Baselines</div>
-          <div style={{ display:"flex", gap:6 }}>
-            {fys.map(f => <button key={f.year} className={`fy-tab${selFY===f.year?" active":""}`} onClick={() => setSelFY(f.year)}>{fyLabel(f.year, fyStart)}</button>)}
-          </div>
+          <YearPicker fys={fys} selectedFY={selFY} fyStart={fyStart} onSelectFY={setSelFY}/>
         </div>
         <div style={{ fontSize:12, color:T.sub, marginBottom:14 }}>
           Baselines are usually reviewed at the start of your {yearNoun(fyStart)}{fyStart !== 0 && ` (${MONTH_NAMES[fyStart]})`}. Enter monthly values for each category in the selected year.
@@ -2352,8 +2428,8 @@ function BaselinePage({ monthIdx, viewEpoch, fyStart, totalMonths, incomeStreams
       <div style={{ fontSize:13, color:T.sub, marginBottom:18 }}>
         Reference values, usually reviewed at the start of your {yearNoun(fyStart)}{fyStart !== 0 && <> (<strong style={{color:T.accent}}>{MONTH_NAMES[fyStart]}</strong>)</>}. Click <strong style={{color:T.accent}}>✎ Edit</strong> to update any section for the selected year.
       </div>
-      <div style={{ display:"flex", gap:6, marginBottom:20, flexWrap:"wrap" }}>
-        {fys.map(f=><button key={f.year} className={`fy-tab${selFY===f.year?" active":""}`} onClick={()=>setSelFY(f.year)}>{fyLabel(f.year,fyStart)}</button>)}
+      <div style={{ display:"flex", marginBottom:20 }}>
+        <YearPicker fys={fys} selectedFY={selFY} fyStart={fyStart} onSelectFY={setSelFY}/>
       </div>
       <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
         {[
@@ -3296,6 +3372,7 @@ function YoCentEApp() {
           streams={blModal.section==="Income"?incomeStreams:blModal.section==="Savings"?savingsStreams:expStreams}
           data={blModal.section==="Income"?baselineIncome:blModal.section==="Savings"?baselineSavings:baselineExp}
           fyStart={fyStart}
+          monthIdx={monthIdx}
           totalMonths={totalMonths}
           onSave={d => saveBaseline(blModal.section, d)}
           onClose={()=>setBLModal(null)}
